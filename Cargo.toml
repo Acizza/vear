@@ -1,0 +1,19 @@
+[package]
+name = "vear"
+version = "0.1.0"
+authors = ["Acizza <jgit@tuta.io>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0"
+futures = "0.3"
+futures-timer = "3.0"
+tui = "0.12"
+
+[dependencies.crossterm]
+version = "0.18"
+features = [ "event-stream" ]
+
+[dependencies.async-std]
+version = "1.7"
+features = [ "attributes" ]
