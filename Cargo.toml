@@ -8,12 +8,16 @@ edition = "2018"
 anyhow = "1.0"
 futures = "0.3"
 futures-timer = "3.0"
-tui = "0.12"
+
+[dependencies.async-std]
+version = "1.7"
+features = [ "attributes" ]
 
 [dependencies.crossterm]
 version = "0.18"
 features = [ "event-stream" ]
 
-[dependencies.async-std]
-version = "1.7"
-features = [ "attributes" ]
+[dependencies.tui]
+version = "0.12"
+default-features = false
+features = [ "crossterm" ]
