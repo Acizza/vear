@@ -21,3 +21,8 @@ features = [ "event-stream" ]
 version = "0.12"
 default-features = false
 features = [ "crossterm" ]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
