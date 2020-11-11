@@ -1,9 +1,11 @@
 mod event;
+mod panel;
 
 use anyhow::{Context, Result};
 use crossterm::event::KeyCode;
 use crossterm::terminal;
 use event::{EventKind, Events};
+use panel::{Draw, MainPanel, Panel};
 use std::io;
 use tui::backend::CrosstermBackend;
 use tui::Terminal;
@@ -14,12 +16,13 @@ pub enum CycleResult {
     Error(anyhow::Error),
 }
 
-pub struct UI {
+pub struct UI<'a> {
     events: Events,
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    main_panel: MainPanel<'a>,
 }
 
-impl UI {
+impl<'a> UI<'a> {
     pub fn init() -> Result<Self> {
         terminal::enable_raw_mode().context("failed to enable raw mode")?;
 
@@ -36,6 +39,7 @@ impl UI {
         Ok(Self {
             events: Events::new(),
             terminal,
+            main_panel: MainPanel::new(),
         })
     }
 
@@ -58,15 +62,23 @@ impl UI {
     }
 
     fn draw(&mut self) -> Result<()> {
-        self.terminal.draw(|mut frame| {}).map_err(Into::into)
+        // We need to remove the mutable borrow on self so we can call other mutable methods on it during our draw call.
+        // This *should* be completely safe as long as nothing in the draw closure can access the terminal.
+        let terminal: *mut _ = &mut self.terminal;
+        let terminal: &mut _ = unsafe { &mut *terminal };
+
+        terminal
+            .draw(|frame| self.main_panel.draw(frame.size(), frame))
+            .map_err(Into::into)
     }
 
     fn process_key(&mut self, key: KeyCode) -> CycleResult {
         if key == KeyCode::Char('q') {
-            CycleResult::Exit
-        } else {
-            CycleResult::Ok
+            return CycleResult::Exit;
         }
+
+        self.main_panel.process_key(key);
+        CycleResult::Ok
     }
 
     fn tick(&mut self) -> CycleResult {
