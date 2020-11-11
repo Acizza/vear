@@ -1,6 +1,7 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
 use std::borrow::Cow;
 use std::ops::Deref;
+use std::ops::Range;
 use tui::buffer::{Buffer, Cell};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
@@ -15,6 +16,36 @@ impl<'a> DirectoryViewer<'a> {
         Self {
             items: WrappedSelection::new(items),
         }
+    }
+
+    /// Calculate how many items are visible based off a given cursor position.
+    ///
+    /// Returns a range that represents the visible bounds, and a new cursor relative to the visible range.
+    fn scroll_window(
+        &self,
+        cursor: usize,
+        num_items: usize,
+        height: usize,
+    ) -> (Range<usize>, usize) {
+        let base_threshold = height / 2;
+
+        let offset = if cursor >= base_threshold {
+            1 + cursor.saturating_sub(base_threshold)
+        } else {
+            0
+        };
+
+        let end = (offset + height).min(num_items);
+
+        let start = if end == num_items {
+            num_items.saturating_sub(height)
+        } else {
+            offset
+        };
+
+        let range = Range { start, end };
+
+        (range, cursor.saturating_sub(start))
     }
 }
 
@@ -45,8 +76,13 @@ impl<'a> Panel for DirectoryViewer<'a> {
 
 impl<'a, B: Backend> Draw<B> for DirectoryViewer<'a> {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
-        for (i, item) in self.items.iter().enumerate() {
-            let highlighted = self.items.index() == i;
+        let (window, relative_index) =
+            self.scroll_window(self.items.index(), self.items.len(), rect.height as usize);
+
+        let items = &self.items[window.start..window.end];
+
+        for (i, item) in items.iter().enumerate() {
+            let highlighted = relative_index == i;
             let rendered_item = RenderedEntry::new(item, highlighted);
 
             let cur_height = i as u16;
