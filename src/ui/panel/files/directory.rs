@@ -56,26 +56,34 @@ impl<'a> DirectoryViewer<'a> {
 }
 
 impl<'a> Panel for DirectoryViewer<'a> {
-    type KeyResult = ();
+    type KeyResult = DirectoryResult<'a>;
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match key {
             KeyCode::Up => {
                 self.items.prev();
+                DirectoryResult::Ok
             }
             KeyCode::Down => {
                 self.items.next();
+                DirectoryResult::Ok
             }
             KeyCode::Char(' ') => {
                 let entry = match self.items.selected_mut() {
                     Some(entry) => entry,
-                    None => return,
+                    None => return DirectoryResult::Ok,
                 };
 
                 entry.selected = !entry.selected;
                 self.items.next();
+
+                DirectoryResult::Ok
             }
-            _ => (),
+            KeyCode::Right | KeyCode::Enter => match self.items.selected() {
+                Some(entry) => DirectoryResult::EntrySelected(entry.clone()),
+                None => DirectoryResult::Ok,
+            },
+            _ => DirectoryResult::Ok,
         }
     }
 }
@@ -108,6 +116,11 @@ impl<'a, B: Backend> Draw<B> for DirectoryViewer<'a> {
     }
 }
 
+pub enum DirectoryResult<'a> {
+    Ok,
+    EntrySelected(DirectoryEntry<'a>),
+}
+
 struct WrappedSelection<T> {
     items: Vec<T>,
     index: usize,
@@ -136,6 +149,11 @@ impl<T> WrappedSelection<T> {
     }
 
     #[inline(always)]
+    pub fn selected(&self) -> Option<&T> {
+        self.items.get(self.index)
+    }
+
+    #[inline(always)]
     pub fn selected_mut(&mut self) -> Option<&mut T> {
         self.items.get_mut(self.index)
     }
@@ -154,6 +172,7 @@ impl<T> Deref for WrappedSelection<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct DirectoryEntry<'a> {
     pub name: Cow<'a, str>,
     pub size_bytes: u64,
