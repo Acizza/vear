@@ -27,25 +27,31 @@ impl<'a> DirectoryViewer<'a> {
         num_items: usize,
         height: usize,
     ) -> (Range<usize>, usize) {
+        // Scrolling will only happen if the cursor is beyond this threshold
         let base_threshold = height / 2;
 
-        let offset = if cursor >= base_threshold {
-            1 + cursor.saturating_sub(base_threshold)
-        } else {
-            0
-        };
+        if cursor < base_threshold || num_items <= height {
+            let range = Range {
+                start: 0,
+                end: num_items,
+            };
 
+            return (range, cursor);
+        }
+
+        // We can now assume there needs to be at least one item that needs to
+        // be scrolled and factor that into our offset
+        let offset = 1 + (cursor - base_threshold);
         let end = (offset + height).min(num_items);
 
         let start = if end == num_items {
+            // The remaining items will now fit
             num_items.saturating_sub(height)
         } else {
             offset
         };
 
-        let range = Range { start, end };
-
-        (range, cursor.saturating_sub(start))
+        (Range { start, end }, cursor.saturating_sub(start))
     }
 }
 
