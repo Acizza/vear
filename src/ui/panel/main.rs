@@ -3,17 +3,17 @@ use tui::{
     widgets::{Block, Borders},
 };
 
-use super::files::FileViewer;
+use super::files::PathViewer;
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 
 pub struct MainPanel<'a> {
-    file_viewer: FileViewer<'a>,
+    path_viewer: PathViewer<'a>,
 }
 
 impl<'a> MainPanel<'a> {
     pub fn new() -> Self {
         Self {
-            file_viewer: FileViewer::new(),
+            path_viewer: PathViewer::new(),
         }
     }
 }
@@ -22,7 +22,7 @@ impl<'a> Panel for MainPanel<'a> {
     type KeyResult = ();
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
-        self.file_viewer.process_key(key)
+        self.path_viewer.process_key(key)
     }
 }
 
@@ -50,6 +50,6 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
         let viewer_pos = block.inner(layout[1]);
 
         frame.render_widget(block, layout[1]);
-        self.file_viewer.draw(viewer_pos, frame);
+        self.path_viewer.draw(viewer_pos, frame);
     }
 }

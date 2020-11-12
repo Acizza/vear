@@ -3,11 +3,11 @@ mod directory;
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use directory::{DirectoryEntry, DirectoryViewer, EntryKind};
 
-pub struct FileViewer<'a> {
-    cur_files: DirectoryViewer<'a>,
+pub struct PathViewer<'a> {
+    cur_dir: DirectoryViewer<'a>,
 }
 
-impl<'a> FileViewer<'a> {
+impl<'a> PathViewer<'a> {
     pub fn new() -> Self {
         let items = (0..20)
             .map(|i| DirectoryEntry {
@@ -23,21 +23,21 @@ impl<'a> FileViewer<'a> {
             .collect::<Vec<_>>();
 
         Self {
-            cur_files: DirectoryViewer::new(items),
+            cur_dir: DirectoryViewer::new(items),
         }
     }
 }
 
-impl<'a> Panel for FileViewer<'a> {
+impl<'a> Panel for PathViewer<'a> {
     type KeyResult = ();
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
-        self.cur_files.process_key(key)
+        self.cur_dir.process_key(key)
     }
 }
 
-impl<'a, B: Backend> Draw<B> for FileViewer<'a> {
+impl<'a, B: Backend> Draw<B> for PathViewer<'a> {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
-        self.cur_files.draw(rect, frame);
+        self.cur_dir.draw(rect, frame);
     }
 }
