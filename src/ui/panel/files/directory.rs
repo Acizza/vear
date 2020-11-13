@@ -294,24 +294,31 @@ fn formatted_size(bytes: u64) -> String {
             let threshold = BASE_UNIT.pow($pow);
 
             if bytes >= threshold {
-                return format!(
-                    concat!($formatter, " {}"),
-                    bytes as f64 / threshold as f64,
-                    $unit_name
-                );
+                let raw_value = bytes as f64 / threshold as f64;
+
+                return if raw_value >= 10.0 {
+                    format!("{} {}", raw_value.round(), $unit_name)
+                } else {
+                    format!(concat!($formatter, " {}"), raw_value, $unit_name)
+                };
             }
             )+
 
             #[cold]
-            format!("0 B")
+            unreachable!()
         }};
     }
 
     match_units!(
-        4 => "TB" => "{:.02}",
-        3 => "GB" => "{:.02}",
-        2 => "MB" => "{:.02}",
-        1 => "KB" => "{:.02}",
+        // Terabytes
+        4 => "T" => "{:.02}",
+        // Gigabytes
+        3 => "G" => "{:.02}",
+        // Megabytes
+        2 => "M" => "{:.02}",
+        // Kilobytes
+        1 => "K" => "{:.02}",
+        // Bytes
         0 => "B" => "{}"
     )
 }
