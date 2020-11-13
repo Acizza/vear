@@ -1,6 +1,7 @@
 mod event;
 mod panel;
 
+use crate::archive::ArchiveEntry;
 use anyhow::{Context, Result};
 use crossterm::event::KeyCode;
 use crossterm::terminal;
@@ -16,14 +17,14 @@ pub enum CycleResult {
     Error(anyhow::Error),
 }
 
-pub struct UI<'a> {
+pub struct UI {
     events: Events,
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
-    main_panel: MainPanel<'a>,
+    main_panel: MainPanel,
 }
 
-impl<'a> UI<'a> {
-    pub fn init() -> Result<Self> {
+impl UI {
+    pub fn init(base_entry: ArchiveEntry) -> Result<Self> {
         terminal::enable_raw_mode().context("failed to enable raw mode")?;
 
         let stdout = io::stdout();
@@ -39,7 +40,7 @@ impl<'a> UI<'a> {
         Ok(Self {
             events: Events::new(),
             terminal,
-            main_panel: MainPanel::new(),
+            main_panel: MainPanel::new(base_entry),
         })
     }
 

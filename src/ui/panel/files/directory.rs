@@ -1,18 +1,19 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
-use std::borrow::Cow;
+use crate::archive::{ArchiveEntry, EntryProperties};
 use std::ops::Deref;
 use std::ops::Range;
+use std::rc::Rc;
 use tui::buffer::{Buffer, Cell};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
 
-pub struct DirectoryViewer<'a> {
-    items: WrappedSelection<DirectoryEntry<'a>>,
+pub struct DirectoryViewer {
+    pub items: WrappedSelection<DirectoryEntry>,
 }
 
-impl<'a> DirectoryViewer<'a> {
-    pub fn new(items: Vec<DirectoryEntry<'a>>) -> Self {
+impl DirectoryViewer {
+    pub fn new(items: Vec<DirectoryEntry>) -> Self {
         Self {
             items: WrappedSelection::new(items),
         }
@@ -55,18 +56,21 @@ impl<'a> DirectoryViewer<'a> {
     }
 }
 
-impl<'a> Panel for DirectoryViewer<'a> {
-    type KeyResult = DirectoryResult<'a>;
+impl Panel for DirectoryViewer {
+    type KeyResult = DirectoryResult;
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match key {
-            KeyCode::Up => {
-                self.items.prev();
-                DirectoryResult::Ok
-            }
-            KeyCode::Down => {
-                self.items.next();
-                DirectoryResult::Ok
+            KeyCode::Up | KeyCode::Down => {
+                let new_item = match key {
+                    KeyCode::Up => self.items.prev(),
+                    KeyCode::Down => self.items.next(),
+                    _ => unreachable!(),
+                };
+
+                new_item
+                    .map(DirectoryResult::EntryHighlight)
+                    .unwrap_or(DirectoryResult::Ok)
             }
             KeyCode::Char(' ') => {
                 let entry = match self.items.selected_mut() {
@@ -80,7 +84,11 @@ impl<'a> Panel for DirectoryViewer<'a> {
                 DirectoryResult::Ok
             }
             KeyCode::Right | KeyCode::Enter => match self.items.selected() {
-                Some(entry) => DirectoryResult::EntrySelected(entry.clone()),
+                Some(entry) => DirectoryResult::ChildEntry(entry.clone()),
+                None => DirectoryResult::Ok,
+            },
+            KeyCode::Left => match self.items.selected() {
+                Some(entry) => DirectoryResult::ParentEntry(entry.clone()),
                 None => DirectoryResult::Ok,
             },
             _ => DirectoryResult::Ok,
@@ -88,7 +96,7 @@ impl<'a> Panel for DirectoryViewer<'a> {
     }
 }
 
-impl<'a, B: Backend> Draw<B> for DirectoryViewer<'a> {
+impl<B: Backend> Draw<B> for DirectoryViewer {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
         let (window, relative_index) =
             self.scroll_window(self.items.index(), self.items.len(), rect.height as usize);
@@ -116,41 +124,46 @@ impl<'a, B: Backend> Draw<B> for DirectoryViewer<'a> {
     }
 }
 
-pub enum DirectoryResult<'a> {
+pub enum DirectoryResult {
     Ok,
-    EntrySelected(DirectoryEntry<'a>),
+    ChildEntry(DirectoryEntry),
+    ParentEntry(DirectoryEntry),
+    EntryHighlight(DirectoryEntry),
 }
 
-struct WrappedSelection<T> {
+pub struct WrappedSelection<T> {
     items: Vec<T>,
     index: usize,
 }
 
-impl<T> WrappedSelection<T> {
+impl<T> WrappedSelection<T>
+where
+    T: Clone,
+{
     pub fn new(items: Vec<T>) -> Self {
         Self { items, index: 0 }
     }
 
     #[inline(always)]
-    pub fn next(&mut self) -> Option<&T> {
+    pub fn next(&mut self) -> Option<T> {
         self.index = (self.index + 1) % self.items.len();
-        self.items.get(self.index)
+        self.items.get(self.index).cloned()
     }
 
     #[inline(always)]
-    pub fn prev(&mut self) -> Option<&T> {
+    pub fn prev(&mut self) -> Option<T> {
         self.index = if self.index == 0 {
             self.items.len() - 1
         } else {
             self.index - 1
         };
 
-        self.items.get(self.index)
+        self.items.get(self.index).cloned()
     }
 
     #[inline(always)]
-    pub fn selected(&self) -> Option<&T> {
-        self.items.get(self.index)
+    pub fn selected(&self) -> Option<T> {
+        self.items.get(self.index).cloned()
     }
 
     #[inline(always)]
@@ -173,68 +186,34 @@ impl<T> Deref for WrappedSelection<T> {
 }
 
 #[derive(Clone)]
-pub struct DirectoryEntry<'a> {
-    pub name: Cow<'a, str>,
-    pub size_bytes: u64,
-    pub kind: EntryKind,
+pub struct DirectoryEntry {
+    pub entry: Rc<ArchiveEntry>,
     pub selected: bool,
 }
 
-#[derive(Copy, Clone)]
-pub enum EntryKind {
-    File,
-    Directory,
-}
-
-impl<'a> DirectoryEntry<'a> {
-    fn size_display(&self) -> String {
-        const BASE_UNIT: u64 = 1024;
-
-        macro_rules! match_units {
-            ($($pow:expr => $unit_name:expr => $formatter:expr),+) => {{
-                $(
-                let total_bytes = BASE_UNIT.pow($pow);
-
-                if self.size_bytes >= total_bytes {
-                    return format!(concat!($formatter, " {}"), self.size_bytes as f64 / total_bytes as f64, $unit_name);
-                }
-                )+
-
-                #[cold]
-                format!("0 B")
-            }};
-        }
-
-        match_units!(
-            4 => "TB" => "{:.02}",
-            3 => "GB" => "{:.02}",
-            2 => "MB" => "{:.02}",
-            1 => "KB" => "{:.02}",
-            0 => "B" => "{}"
-        )
-    }
-}
-
 struct RenderedEntry<'a> {
-    entry: &'a DirectoryEntry<'a>,
+    inner: &'a DirectoryEntry,
     highlighted: bool,
 }
 
 impl<'a> RenderedEntry<'a> {
-    fn new(entry: &'a DirectoryEntry<'a>, highlighted: bool) -> Self {
-        Self { entry, highlighted }
+    fn new(entry: &'a DirectoryEntry, highlighted: bool) -> Self {
+        Self {
+            inner: entry,
+            highlighted,
+        }
     }
 
     fn apply_line_color(&self, area: Rect, buf: &mut Buffer) {
         const WHITE: Color = Color::Rgb(225, 225, 225);
         const BLACK: Color = Color::Rgb(10, 10, 10);
 
-        let primary_color = match self.entry.kind {
-            EntryKind::File => WHITE,
-            EntryKind::Directory => Color::LightBlue,
+        let primary_color = match &self.inner.entry.props {
+            EntryProperties::File(_) => WHITE,
+            EntryProperties::Directory => Color::LightBlue,
         };
 
-        match (self.highlighted, self.entry.selected) {
+        match (self.highlighted, self.inner.selected) {
             (true, true) => fill_area(area, buf, |cell| {
                 cell.fg = BLACK;
                 cell.bg = Color::Yellow;
@@ -261,13 +240,13 @@ impl<'a> Widget for RenderedEntry<'a> {
 
         self.apply_line_color(area, buf);
 
-        let style = if self.highlighted || self.entry.selected {
+        let style = if self.highlighted || self.inner.selected {
             Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
 
-        let name_offset = if self.entry.selected {
+        let name_offset = if self.inner.selected {
             BASE_NAME_OFFSET * 2
         } else {
             BASE_NAME_OFFSET
@@ -276,24 +255,27 @@ impl<'a> Widget for RenderedEntry<'a> {
         buf.set_stringn(
             area.x + name_offset,
             area.y,
-            self.entry.name.as_ref(),
+            &self.inner.entry.name,
             // This caps the maximum length to always show at least one free character at the end
             area.width.saturating_sub(name_offset + BASE_NAME_OFFSET) as usize,
             style,
         );
 
-        let size = self.entry.size_display();
+        let desc_text = match &self.inner.entry.props {
+            EntryProperties::File(props) => formatted_size(props.raw_size_bytes),
+            EntryProperties::Directory => self.inner.entry.children.len().to_string(),
+        };
 
-        let name_len = name_offset + self.entry.name.len() as u16;
+        let name_len = name_offset + self.inner.entry.name.len() as u16;
         let size_start = area
             .width
-            .saturating_sub(size.len() as u16)
+            .saturating_sub(desc_text.len() as u16)
             .saturating_sub(BASE_SIZE_OFFSET);
         let remaining_space = size_start.saturating_sub(MIN_SPACING);
 
-        // Draw the size of the entry only if we have enough room for it
+        // Draw the description of the entry only if we have enough room for it
         if remaining_space >= name_len {
-            buf.set_string(area.x + size_start, area.y, size, style);
+            buf.set_string(area.x + size_start, area.y, desc_text, style);
         }
     }
 }
@@ -307,4 +289,35 @@ where
             func(buf.get_mut(area.x + x, area.y + y))
         }
     }
+}
+
+fn formatted_size(bytes: u64) -> String {
+    const BASE_UNIT: u64 = 1024;
+
+    macro_rules! match_units {
+        ($($pow:expr => $unit_name:expr => $formatter:expr),+) => {{
+            $(
+            let threshold = BASE_UNIT.pow($pow);
+
+            if bytes >= threshold {
+                return format!(
+                    concat!($formatter, " {}"),
+                    bytes as f64 / threshold as f64,
+                    $unit_name
+                );
+            }
+            )+
+
+            #[cold]
+            format!("0 B")
+        }};
+    }
+
+    match_units!(
+        4 => "TB" => "{:.02}",
+        3 => "GB" => "{:.02}",
+        2 => "MB" => "{:.02}",
+        1 => "KB" => "{:.02}",
+        0 => "B" => "{}"
+    )
 }

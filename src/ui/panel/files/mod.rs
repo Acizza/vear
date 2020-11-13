@@ -1,54 +1,53 @@
 mod directory;
 
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use directory::{DirectoryEntry, DirectoryResult, DirectoryViewer, EntryKind};
+use crate::archive::ArchiveEntry;
+use directory::{DirectoryEntry, DirectoryResult, DirectoryViewer};
 use tui::layout::{Constraint, Direction, Layout};
 
-pub struct PathViewer<'a> {
-    parent_dir: Option<DirectoryViewer<'a>>,
-    cur_dir: DirectoryViewer<'a>,
-    child_dir: Option<DirectoryViewer<'a>>,
+pub struct PathViewer {
+    base_entry: ArchiveEntry,
+    parent_dir: Option<DirectoryViewer>,
+    cur_dir: DirectoryViewer,
+    child_dir: Option<DirectoryViewer>,
 }
 
-impl<'a> PathViewer<'a> {
-    pub fn new() -> Self {
-        let items = (0..20)
-            .map(|i| DirectoryEntry {
-                name: format!("test {}.mp4", i).into(),
-                size_bytes: 512 * (i as u64).pow(8),
-                kind: if i % 3 == 0 {
-                    EntryKind::Directory
-                } else {
-                    EntryKind::File
-                },
-                selected: false,
-            })
-            .collect::<Vec<_>>();
+impl PathViewer {
+    pub fn new(base_entry: ArchiveEntry) -> Self {
+        let dir_files = Self::mapped_entries(&base_entry);
 
         Self {
+            base_entry,
             parent_dir: None,
-            cur_dir: DirectoryViewer::new(items),
+            cur_dir: DirectoryViewer::new(dir_files),
             child_dir: None,
         }
     }
+
+    fn mapped_entries(entry: &ArchiveEntry) -> Vec<DirectoryEntry> {
+        entry
+            .children
+            .iter()
+            .map(|entry| DirectoryEntry {
+                entry: entry.clone(),
+                selected: false,
+            })
+            .collect()
+    }
 }
 
-impl<'a> Panel for PathViewer<'a> {
+impl Panel for PathViewer {
     type KeyResult = ();
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match self.cur_dir.process_key(key) {
             DirectoryResult::Ok => (),
-            DirectoryResult::EntrySelected(entry) => {
-                // TODO
-                self.parent_dir = Some(DirectoryViewer::new(vec![entry.clone()]));
-                self.child_dir = Some(DirectoryViewer::new(vec![entry]));
-            }
+            _ => (),
         }
     }
 }
 
-impl<'a, B: Backend> Draw<B> for PathViewer<'a> {
+impl<B: Backend> Draw<B> for PathViewer {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
         let layout = Layout::default()
             .constraints([
