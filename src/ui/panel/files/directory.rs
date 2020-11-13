@@ -34,7 +34,7 @@ impl DirectoryViewer {
         if cursor < base_threshold || num_items <= height {
             let range = Range {
                 start: 0,
-                end: num_items,
+                end: num_items.min(height),
             };
 
             return (range, cursor);
@@ -107,14 +107,8 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
             let highlighted = relative_index == i;
             let rendered_item = RenderedEntry::new(item, highlighted);
 
-            let cur_height = i as u16;
-
-            if cur_height >= rect.height {
-                break;
-            }
-
             let pos = Rect {
-                y: rect.y + cur_height,
+                y: rect.y + (i as u16),
                 height: 1,
                 ..rect
             };
