@@ -111,9 +111,7 @@ impl Index<NodeID> for ArchiveEntries {
     type Output = Rc<ArchiveEntry>;
 
     fn index(&self, index: NodeID) -> &Self::Output {
-        // This is safe as NodeID's cannot be mutated publicly
-        // Our use case for them in ArchiveEntries always points to a valid index.
-        unsafe { &self.0.get_unchecked(*index) }
+        &self.0[*index]
     }
 }
 

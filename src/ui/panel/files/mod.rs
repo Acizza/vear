@@ -41,20 +41,22 @@ impl Panel for PathViewer {
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match self.cur_dir.process_key(key) {
             DirectoryResult::Ok => (),
-            DirectoryResult::EntryHighlight(node) => {
-                self.child_dir = if self.entries[node].props.is_dir() {
-                    Some(self.new_dir_viewer(node))
+            DirectoryResult::EntryHighlight(id) => {
+                self.child_dir = if self.entries[id].props.is_dir() {
+                    Some(self.new_dir_viewer(id))
                 } else {
                     None
                 };
             }
-            DirectoryResult::ChildEntry(node) => {
-                if !self.entries[node].props.is_dir() {
+            DirectoryResult::ViewChild(id) => {
+                let node = &self.entries[id];
+
+                if !node.props.is_dir() || node.children.is_empty() {
                     return;
                 }
 
                 let old_cur = {
-                    let replacement = self.new_dir_viewer(node);
+                    let replacement = self.new_dir_viewer(id);
                     mem::replace(&mut self.cur_dir, replacement)
                 };
 
@@ -66,7 +68,7 @@ impl Panel for PathViewer {
                     .selected()
                     .map(|selected| self.new_dir_viewer(selected.id));
             }
-            DirectoryResult::ParentEntry(node) => {
+            DirectoryResult::ViewParent(id) => {
                 let new_cur = match mem::take(&mut self.parent_dir) {
                     Some(new_cur) => new_cur,
                     None => return,
@@ -74,7 +76,7 @@ impl Panel for PathViewer {
 
                 self.child_dir = Some(mem::replace(&mut self.cur_dir, new_cur));
 
-                let parent = self.entries[node]
+                let parent = self.entries[id]
                     .parent
                     .and_then(|parent| self.entries[parent].parent)
                     .and_then(|parent| self.entries[parent].parent);

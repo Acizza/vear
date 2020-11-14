@@ -105,11 +105,11 @@ impl Panel for DirectoryViewer {
                 DirectoryResult::Ok
             }
             KeyCode::Right | KeyCode::Enter => match self.entries.selected() {
-                Some(entry) => DirectoryResult::ChildEntry(entry.id),
+                Some(entry) => DirectoryResult::ViewChild(entry.id),
                 None => DirectoryResult::Ok,
             },
             KeyCode::Left => match self.entries.selected() {
-                Some(entry) => DirectoryResult::ParentEntry(entry.id),
+                Some(entry) => DirectoryResult::ViewParent(entry.id),
                 None => DirectoryResult::Ok,
             },
             _ => DirectoryResult::Ok,
@@ -143,8 +143,8 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
 
 pub enum DirectoryResult {
     Ok,
-    ChildEntry(NodeID),
-    ParentEntry(NodeID),
+    ViewChild(NodeID),
+    ViewParent(NodeID),
     EntryHighlight(NodeID),
 }
 
@@ -163,14 +163,14 @@ where
 
     #[inline(always)]
     pub fn next(&mut self) -> Option<&T> {
-        self.index = (self.index + 1) % self.items.len();
+        self.index = (self.index + 1) % self.items.len().max(1);
         self.items.get(self.index)
     }
 
     #[inline(always)]
     pub fn prev(&mut self) -> Option<&T> {
         self.index = if self.index == 0 {
-            self.items.len() - 1
+            self.items.len().saturating_sub(1)
         } else {
             self.index - 1
         };
