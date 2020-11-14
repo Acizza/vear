@@ -122,6 +122,10 @@ impl Panel for DirectoryViewer {
 
 impl<B: Backend> Draw<B> for DirectoryViewer {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
+        if rect.width <= 1 || rect.height <= 1 {
+            return;
+        }
+
         let window = self.scroll_window(
             self.entries.index(),
             self.entries.len(),
@@ -256,18 +260,22 @@ impl<'a> Widget for RenderedItem<'a> {
         const BASE_SIZE_OFFSET: u16 = 1;
         const MIN_SPACING: u16 = 1;
 
+        let name_offset = if self.inner.selected {
+            BASE_NAME_OFFSET * 2
+        } else {
+            BASE_NAME_OFFSET
+        };
+
+        if area.width <= name_offset || area.height == 0 {
+            return;
+        }
+
         self.apply_line_color(area, buf);
 
         let style = if self.highlighted || self.inner.selected {
             Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
-        };
-
-        let name_offset = if self.inner.selected {
-            BASE_NAME_OFFSET * 2
-        } else {
-            BASE_NAME_OFFSET
         };
 
         buf.set_stringn(
