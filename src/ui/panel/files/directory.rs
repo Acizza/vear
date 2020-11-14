@@ -8,12 +8,13 @@ use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
 
 pub struct DirectoryViewer {
-    pub items: WrappedSelection<DirectoryEntry>,
+    pub entries: WrappedSelection<DirectoryEntry>,
+    pub highlighted: NodeID,
 }
 
 impl DirectoryViewer {
     pub fn new(entries: &ArchiveEntries, viewed: NodeID) -> Self {
-        let items = entries[viewed]
+        let mapped_entries = entries[viewed]
             .children
             .iter()
             .map(|&entry| DirectoryEntry {
@@ -21,22 +22,23 @@ impl DirectoryViewer {
                 entry: Rc::clone(&entries[entry]),
                 selected: false,
             })
-            .collect();
+            .collect::<Vec<_>>();
+
+        let highlighted = mapped_entries
+            .first()
+            .map(|entry| entry.id)
+            .unwrap_or(viewed);
 
         Self {
-            items: WrappedSelection::new(items),
+            entries: WrappedSelection::new(mapped_entries),
+            highlighted,
         }
     }
 
     /// Calculate how many items are visible based off a given cursor position.
     ///
-    /// Returns a range that represents the visible bounds, and a new cursor relative to the visible range.
-    fn scroll_window(
-        &self,
-        cursor: usize,
-        num_items: usize,
-        height: usize,
-    ) -> (Range<usize>, usize) {
+    /// Returns a range that represents the visible bounds.
+    fn scroll_window(&self, cursor: usize, num_items: usize, height: usize) -> Range<usize> {
         // Scrolling will only happen if the cursor is beyond this threshold
         let base_threshold = height / 2;
 
@@ -46,7 +48,7 @@ impl DirectoryViewer {
                 end: num_items.min(height),
             };
 
-            return (range, cursor);
+            return range;
         }
 
         // We can now assume there needs to be at least one item that needs to
@@ -61,7 +63,7 @@ impl DirectoryViewer {
             offset
         };
 
-        (Range { start, end }, cursor.saturating_sub(start))
+        Range { start, end }
     }
 }
 
@@ -72,32 +74,35 @@ impl Panel for DirectoryViewer {
         match key {
             KeyCode::Up | KeyCode::Down => {
                 let new_node = match key {
-                    KeyCode::Up => self.items.prev(),
-                    KeyCode::Down => self.items.next(),
+                    KeyCode::Up => self.entries.prev(),
+                    KeyCode::Down => self.entries.next(),
                     _ => unreachable!(),
                 };
 
-                new_node
-                    .map(|node| node.id)
-                    .map(DirectoryResult::EntryHighlight)
-                    .unwrap_or(DirectoryResult::Ok)
+                match new_node {
+                    Some(&DirectoryEntry { id, .. }) => {
+                        self.highlighted = id;
+                        DirectoryResult::EntryHighlight(id)
+                    }
+                    None => DirectoryResult::Ok,
+                }
             }
             KeyCode::Char(' ') => {
-                let entry = match self.items.selected_mut() {
+                let entry = match self.entries.selected_mut() {
                     Some(entry) => entry,
                     None => return DirectoryResult::Ok,
                 };
 
                 entry.selected = !entry.selected;
-                self.items.next();
+                self.entries.next();
 
                 DirectoryResult::Ok
             }
-            KeyCode::Right | KeyCode::Enter => match self.items.selected() {
+            KeyCode::Right | KeyCode::Enter => match self.entries.selected() {
                 Some(entry) => DirectoryResult::ChildEntry(entry.id),
                 None => DirectoryResult::Ok,
             },
-            KeyCode::Left => match self.items.selected() {
+            KeyCode::Left => match self.entries.selected() {
                 Some(entry) => DirectoryResult::ParentEntry(entry.id),
                 None => DirectoryResult::Ok,
             },
@@ -108,13 +113,16 @@ impl Panel for DirectoryViewer {
 
 impl<B: Backend> Draw<B> for DirectoryViewer {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
-        let (window, relative_index) =
-            self.scroll_window(self.items.index(), self.items.len(), rect.height as usize);
+        let window = self.scroll_window(
+            self.entries.index(),
+            self.entries.len(),
+            rect.height as usize,
+        );
 
-        let items = &self.items[window.start..window.end];
+        let items = &self.entries[window.start..window.end];
 
         for (i, item) in items.iter().enumerate() {
-            let rendered = RenderedItem::new(item, relative_index == i);
+            let rendered = RenderedItem::new(item, item.id == self.highlighted);
 
             let pos = Rect {
                 y: rect.y + (i as u16),

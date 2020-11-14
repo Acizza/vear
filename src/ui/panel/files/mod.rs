@@ -18,7 +18,7 @@ impl PathViewer {
         let cur_dir = DirectoryViewer::new(&entries, NodeID::first());
 
         let child_dir = cur_dir
-            .items
+            .entries
             .selected()
             .map(|selected| DirectoryViewer::new(&entries, selected.id));
 
@@ -62,7 +62,7 @@ impl Panel for PathViewer {
 
                 self.child_dir = self
                     .cur_dir
-                    .items
+                    .entries
                     .selected()
                     .map(|selected| self.new_dir_viewer(selected.id));
             }
