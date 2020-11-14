@@ -93,11 +93,11 @@ impl<B: Backend> Draw<B> for PathViewer {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
         let layout = Layout::default()
             .constraints([
-                Constraint::Percentage(20),
+                Constraint::Percentage(25),
                 Constraint::Length(1),
                 Constraint::Percentage(50),
                 Constraint::Length(1),
-                Constraint::Percentage(30),
+                Constraint::Percentage(25),
             ])
             .direction(Direction::Horizontal)
             .split(rect);
