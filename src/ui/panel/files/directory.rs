@@ -100,7 +100,10 @@ impl Panel for DirectoryViewer {
                 };
 
                 entry.selected = !entry.selected;
-                self.entries.next();
+
+                if let Some(entry) = self.entries.next() {
+                    self.highlighted = entry.id;
+                }
 
                 DirectoryResult::Ok
             }
