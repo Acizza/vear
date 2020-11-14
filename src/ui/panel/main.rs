@@ -1,15 +1,15 @@
 use super::files::PathViewer;
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use crate::archive::ArchiveEntry;
+use crate::archive::ArchiveEntries;
 
 pub struct MainPanel {
     path_viewer: PathViewer,
 }
 
 impl MainPanel {
-    pub fn new(base_entry: ArchiveEntry) -> Self {
+    pub fn new(archive_entries: ArchiveEntries) -> Self {
         Self {
-            path_viewer: PathViewer::new(base_entry),
+            path_viewer: PathViewer::new(archive_entries),
         }
     }
 }

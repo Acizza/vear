@@ -1,7 +1,7 @@
 mod event;
 mod panel;
 
-use crate::archive::ArchiveEntry;
+use crate::archive::ArchiveEntries;
 use anyhow::{Context, Result};
 use crossterm::event::KeyCode;
 use crossterm::terminal;
@@ -24,7 +24,7 @@ pub struct UI {
 }
 
 impl UI {
-    pub fn init(base_entry: ArchiveEntry) -> Result<Self> {
+    pub fn init(archive_entries: ArchiveEntries) -> Result<Self> {
         terminal::enable_raw_mode().context("failed to enable raw mode")?;
 
         let stdout = io::stdout();
@@ -40,7 +40,7 @@ impl UI {
         Ok(Self {
             events: Events::new(),
             terminal,
-            main_panel: MainPanel::new(base_entry),
+            main_panel: MainPanel::new(archive_entries),
         })
     }
 

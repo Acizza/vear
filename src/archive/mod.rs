@@ -1,14 +1,128 @@
 use anyhow::{anyhow, Context, Result};
-use std::fs::File;
+use std::ops::{Deref, Index};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::{fs::File, rc::Rc};
 use zip::{read::ZipFile, ZipArchive};
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct NodeID(usize);
+
+impl NodeID {
+    #[inline(always)]
+    pub const fn first() -> Self {
+        Self(0)
+    }
+}
+
+impl Deref for NodeID {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug)]
+pub struct ArchiveEntries(Vec<Rc<ArchiveEntry>>);
+
+impl ArchiveEntries {
+    pub fn new_root() -> Self {
+        let root = ArchiveEntry::new_directory("/");
+
+        let mut entries = Vec::with_capacity(64);
+        entries.push(Rc::new(root));
+
+        Self(entries)
+    }
+
+    #[inline(always)]
+    fn push_entry(&mut self, node: ArchiveEntry) -> NodeID {
+        let next = NodeID(self.len());
+        self.0.push(Rc::new(node));
+        next
+    }
+
+    // TODO: make generic over archive type
+    pub fn read<P>(path: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let file = File::open(path).context("failed to open archive")?;
+        let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
+
+        let mut entries = Self::new_root();
+
+        for i in 0..archive.len() {
+            let file = archive
+                .by_index(i)
+                .with_context(|| anyhow!("failed to get archive file at index {}", i))?;
+
+            // TODO: sanitize?
+            let full_name = file.name();
+            let path = PathBuf::from(full_name);
+
+            let mut cur_node = NodeID::first();
+
+            for component in path.iter() {
+                let component = component.to_string_lossy();
+
+                let existing_pos = entries[cur_node]
+                    .children
+                    .iter()
+                    .find(|&&id| entries[id].name == component)
+                    .cloned();
+
+                let next_node_pos = match existing_pos {
+                    Some(pos) => pos,
+                    None => {
+                        let mut entry = ArchiveEntry::from_path(component, full_name, &file);
+                        entry.parent = Some(cur_node);
+
+                        let id = entries.push_entry(entry);
+
+                        Rc::get_mut(&mut entries.0[*cur_node])
+                            .unwrap()
+                            .children
+                            .push(id);
+
+                        id
+                    }
+                };
+
+                cur_node = next_node_pos;
+            }
+        }
+
+        entries.0.shrink_to_fit();
+
+        Ok(entries)
+    }
+}
+
+impl Deref for ArchiveEntries {
+    type Target = Vec<Rc<ArchiveEntry>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Index<NodeID> for ArchiveEntries {
+    type Output = Rc<ArchiveEntry>;
+
+    fn index(&self, index: NodeID) -> &Self::Output {
+        // This is safe as NodeID's cannot be mutated publicly
+        // Our use case for them in ArchiveEntries always points to a valid index.
+        unsafe { &self.0.get_unchecked(*index) }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ArchiveEntry {
     pub name: String,
     pub props: EntryProperties,
-    pub children: Vec<Rc<ArchiveEntry>>,
+    pub parent: Option<NodeID>,
+    pub children: Vec<NodeID>,
 }
 
 impl ArchiveEntry {
@@ -19,6 +133,7 @@ impl ArchiveEntry {
         Self {
             name: name.into(),
             props,
+            parent: None,
             children: Vec::new(),
         }
     }
@@ -63,6 +178,13 @@ impl EntryProperties {
     fn file(file: &ZipFile) -> Self {
         Self::File(file.into())
     }
+
+    pub fn is_dir(&self) -> bool {
+        match self {
+            Self::Directory => true,
+            Self::File(_) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -78,47 +200,4 @@ impl<'a> From<&ZipFile<'a>> for FileProperties {
             compressed_size_bytes: file.compressed_size(),
         }
     }
-}
-
-// TODO: make generic over archive type
-pub fn read_files<P>(path: P) -> Result<ArchiveEntry>
-where
-    P: AsRef<Path>,
-{
-    let file = File::open(path).context("failed to open archive")?;
-    let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
-
-    let mut root = ArchiveEntry::new_directory("/");
-
-    for i in 0..archive.len() {
-        let file = archive
-            .by_index(i)
-            .with_context(|| anyhow!("failed to get archive file at index {}", i))?;
-
-        // TODO: sanitize?
-        let full_name = file.name();
-        let path = PathBuf::from(full_name);
-
-        let mut cur_node = &mut root;
-
-        for component in path.iter() {
-            let component = component.to_string_lossy();
-            let existing_pos = cur_node.children.iter().position(|e| e.name == component);
-
-            let next_node_pos = match existing_pos {
-                Some(pos) => pos,
-                None => {
-                    let entry = ArchiveEntry::from_path(component, full_name, &file);
-                    cur_node.children.push(Rc::new(entry));
-                    cur_node.children.len() - 1
-                }
-            };
-
-            // Unwrapping here is safe as we aren't creating any other Rc's or weak pointers to any children
-            // TODO: this can be optimized to use get_mut_unchecked if/when it's made stable: https://github.com/rust-lang/rust/issues/63292
-            cur_node = Rc::get_mut(&mut cur_node.children[next_node_pos]).unwrap();
-        }
-    }
-
-    Ok(root)
 }

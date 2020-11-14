@@ -1,8 +1,7 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
-use crate::archive::{ArchiveEntry, EntryProperties};
-use std::ops::Deref;
+use crate::archive::{ArchiveEntries, ArchiveEntry, EntryProperties, NodeID};
 use std::ops::Range;
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 use tui::buffer::{Buffer, Cell};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
@@ -13,7 +12,17 @@ pub struct DirectoryViewer {
 }
 
 impl DirectoryViewer {
-    pub fn new(items: Vec<DirectoryEntry>) -> Self {
+    pub fn new(entries: &ArchiveEntries, viewed: NodeID) -> Self {
+        let items = entries[viewed]
+            .children
+            .iter()
+            .map(|&entry| DirectoryEntry {
+                id: entry,
+                entry: Rc::clone(&entries[entry]),
+                selected: false,
+            })
+            .collect();
+
         Self {
             items: WrappedSelection::new(items),
         }
@@ -62,13 +71,14 @@ impl Panel for DirectoryViewer {
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match key {
             KeyCode::Up | KeyCode::Down => {
-                let new_item = match key {
+                let new_node = match key {
                     KeyCode::Up => self.items.prev(),
                     KeyCode::Down => self.items.next(),
                     _ => unreachable!(),
                 };
 
-                new_item
+                new_node
+                    .map(|node| node.id)
                     .map(DirectoryResult::EntryHighlight)
                     .unwrap_or(DirectoryResult::Ok)
             }
@@ -84,11 +94,11 @@ impl Panel for DirectoryViewer {
                 DirectoryResult::Ok
             }
             KeyCode::Right | KeyCode::Enter => match self.items.selected() {
-                Some(entry) => DirectoryResult::ChildEntry(entry.clone()),
+                Some(entry) => DirectoryResult::ChildEntry(entry.id),
                 None => DirectoryResult::Ok,
             },
             KeyCode::Left => match self.items.selected() {
-                Some(entry) => DirectoryResult::ParentEntry(entry.clone()),
+                Some(entry) => DirectoryResult::ParentEntry(entry.id),
                 None => DirectoryResult::Ok,
             },
             _ => DirectoryResult::Ok,
@@ -104,8 +114,7 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
         let items = &self.items[window.start..window.end];
 
         for (i, item) in items.iter().enumerate() {
-            let highlighted = relative_index == i;
-            let rendered_item = RenderedEntry::new(item, highlighted);
+            let rendered = RenderedItem::new(item, relative_index == i);
 
             let pos = Rect {
                 y: rect.y + (i as u16),
@@ -113,16 +122,16 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
                 ..rect
             };
 
-            frame.render_widget(rendered_item, pos);
+            frame.render_widget(rendered, pos);
         }
     }
 }
 
 pub enum DirectoryResult {
     Ok,
-    ChildEntry(DirectoryEntry),
-    ParentEntry(DirectoryEntry),
-    EntryHighlight(DirectoryEntry),
+    ChildEntry(NodeID),
+    ParentEntry(NodeID),
+    EntryHighlight(NodeID),
 }
 
 pub struct WrappedSelection<T> {
@@ -139,25 +148,25 @@ where
     }
 
     #[inline(always)]
-    pub fn next(&mut self) -> Option<T> {
+    pub fn next(&mut self) -> Option<&T> {
         self.index = (self.index + 1) % self.items.len();
-        self.items.get(self.index).cloned()
+        self.items.get(self.index)
     }
 
     #[inline(always)]
-    pub fn prev(&mut self) -> Option<T> {
+    pub fn prev(&mut self) -> Option<&T> {
         self.index = if self.index == 0 {
             self.items.len() - 1
         } else {
             self.index - 1
         };
 
-        self.items.get(self.index).cloned()
+        self.items.get(self.index)
     }
 
     #[inline(always)]
-    pub fn selected(&self) -> Option<T> {
-        self.items.get(self.index).cloned()
+    pub fn selected(&self) -> Option<&T> {
+        self.items.get(self.index)
     }
 
     #[inline(always)]
@@ -181,21 +190,19 @@ impl<T> Deref for WrappedSelection<T> {
 
 #[derive(Clone)]
 pub struct DirectoryEntry {
+    pub id: NodeID,
     pub entry: Rc<ArchiveEntry>,
     pub selected: bool,
 }
 
-struct RenderedEntry<'a> {
+struct RenderedItem<'a> {
     inner: &'a DirectoryEntry,
     highlighted: bool,
 }
 
-impl<'a> RenderedEntry<'a> {
-    fn new(entry: &'a DirectoryEntry, highlighted: bool) -> Self {
-        Self {
-            inner: entry,
-            highlighted,
-        }
+impl<'a> RenderedItem<'a> {
+    fn new(inner: &'a DirectoryEntry, highlighted: bool) -> Self {
+        Self { inner, highlighted }
     }
 
     fn apply_line_color(&self, area: Rect, buf: &mut Buffer) {
@@ -226,7 +233,7 @@ impl<'a> RenderedEntry<'a> {
     }
 }
 
-impl<'a> Widget for RenderedEntry<'a> {
+impl<'a> Widget for RenderedItem<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         const BASE_NAME_OFFSET: u16 = 1;
         const BASE_SIZE_OFFSET: u16 = 1;

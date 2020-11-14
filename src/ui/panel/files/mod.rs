@@ -1,38 +1,37 @@
 mod directory;
 
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use crate::archive::ArchiveEntry;
-use directory::{DirectoryEntry, DirectoryResult, DirectoryViewer};
+use crate::archive::{ArchiveEntries, NodeID};
+use directory::{DirectoryResult, DirectoryViewer};
+use std::mem;
 use tui::layout::{Constraint, Direction, Layout};
 
 pub struct PathViewer {
-    base_entry: ArchiveEntry,
+    entries: ArchiveEntries,
     parent_dir: Option<DirectoryViewer>,
     cur_dir: DirectoryViewer,
     child_dir: Option<DirectoryViewer>,
 }
 
 impl PathViewer {
-    pub fn new(base_entry: ArchiveEntry) -> Self {
-        let dir_files = Self::mapped_entries(&base_entry);
+    pub fn new(entries: ArchiveEntries) -> Self {
+        let cur_dir = DirectoryViewer::new(&entries, NodeID::first());
+
+        let child_dir = cur_dir
+            .items
+            .selected()
+            .map(|selected| DirectoryViewer::new(&entries, selected.id));
 
         Self {
-            base_entry,
+            entries,
             parent_dir: None,
-            cur_dir: DirectoryViewer::new(dir_files),
-            child_dir: None,
+            cur_dir,
+            child_dir,
         }
     }
 
-    fn mapped_entries(entry: &ArchiveEntry) -> Vec<DirectoryEntry> {
-        entry
-            .children
-            .iter()
-            .map(|entry| DirectoryEntry {
-                entry: entry.clone(),
-                selected: false,
-            })
-            .collect()
+    fn new_dir_viewer(&self, node: NodeID) -> DirectoryViewer {
+        DirectoryViewer::new(&self.entries, node)
     }
 }
 
@@ -42,7 +41,48 @@ impl Panel for PathViewer {
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match self.cur_dir.process_key(key) {
             DirectoryResult::Ok => (),
-            _ => (),
+            DirectoryResult::EntryHighlight(node) => {
+                self.child_dir = if self.entries[node].props.is_dir() {
+                    Some(self.new_dir_viewer(node))
+                } else {
+                    None
+                };
+            }
+            DirectoryResult::ChildEntry(node) => {
+                if !self.entries[node].props.is_dir() {
+                    return;
+                }
+
+                let old_cur = {
+                    let replacement = self.new_dir_viewer(node);
+                    mem::replace(&mut self.cur_dir, replacement)
+                };
+
+                self.parent_dir = Some(old_cur);
+
+                self.child_dir = self
+                    .cur_dir
+                    .items
+                    .selected()
+                    .map(|selected| self.new_dir_viewer(selected.id));
+            }
+            DirectoryResult::ParentEntry(node) => {
+                let new_cur = match mem::take(&mut self.parent_dir) {
+                    Some(new_cur) => new_cur,
+                    None => return,
+                };
+
+                self.child_dir = Some(mem::replace(&mut self.cur_dir, new_cur));
+
+                let parent = self.entries[node]
+                    .parent
+                    .and_then(|parent| self.entries[parent].parent)
+                    .and_then(|parent| self.entries[parent].parent);
+
+                if let Some(parent) = parent {
+                    self.parent_dir = Some(self.new_dir_viewer(parent));
+                }
+            }
         }
     }
 }
