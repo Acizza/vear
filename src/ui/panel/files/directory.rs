@@ -14,7 +14,7 @@ pub struct DirectoryViewer {
 
 impl DirectoryViewer {
     pub fn new(entries: &ArchiveEntries, viewed: NodeID) -> Self {
-        let mapped_entries = entries[viewed]
+        let mut mapped_entries = entries[viewed]
             .children
             .iter()
             .map(|&entry| DirectoryEntry {
@@ -23,6 +23,12 @@ impl DirectoryViewer {
                 selected: false,
             })
             .collect::<Vec<_>>();
+
+        mapped_entries.sort_unstable_by(|x, y| {
+            let by_kind_desc = y.entry.props.is_dir().cmp(&x.entry.props.is_dir());
+            let by_name_desc = x.entry.name.cmp(&y.entry.name);
+            by_kind_desc.then(by_name_desc)
+        });
 
         let highlighted = mapped_entries
             .first()
