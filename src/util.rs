@@ -33,33 +33,31 @@ pub mod size {
         )
     }
 
-    pub fn formatted(bytes: u64) -> String {
-        let (value, unit) = formatted_fragments(bytes);
+    macro_rules! gen_format {
+        ($bytes:expr, $rounded_format:expr => $non_rounded_format:expr, $unit_format:expr) => {{
+            let (value, unit) = formatted_fragments($bytes);
 
-        if value >= MIN_VALUE_TO_ROUND {
-            format!("{} {}", value.round() as u64, unit)
-        } else {
-            format!("{:.02} {}", value, unit)
-        }
+            if value >= MIN_VALUE_TO_ROUND || value < 0.01 {
+                format!(
+                    concat!($rounded_format, $unit_format),
+                    value.round() as u64,
+                    unit
+                )
+            } else {
+                format!(concat!($non_rounded_format, $unit_format), value, unit)
+            }
+        }};
+    }
+
+    pub fn formatted(bytes: u64) -> String {
+        gen_format!(bytes, "{}" => "{:.02}", " {}")
     }
 
     pub fn formatted_extra_compact(bytes: u64) -> String {
-        let (value, unit) = formatted_fragments(bytes);
-
-        if value >= MIN_VALUE_TO_ROUND {
-            format!("{}{}", value.round() as u64, unit)
-        } else {
-            format!("{:.01}{}", value, unit)
-        }
+        gen_format!(bytes, "{}" => "{:.01}", "{}")
     }
 
     pub fn formatted_compact(bytes: u64) -> String {
-        let (value, unit) = formatted_fragments(bytes);
-
-        if value >= MIN_VALUE_TO_ROUND {
-            format!("{}{}", value.round() as u64, unit)
-        } else {
-            format!("{:.02}{}", value, unit)
-        }
+        gen_format!(bytes, "{}" => "{:.02}", "{}")
     }
 }
