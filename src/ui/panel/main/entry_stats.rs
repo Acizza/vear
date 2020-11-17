@@ -60,6 +60,10 @@ impl<'a> EntryStats<'a> {
             EntryProperties::Directory => return None,
         };
 
+        if raw == 0 {
+            return None;
+        }
+
         let pcnt = ((compressed as f64 / raw as f64) * 100.0).round();
 
         format!("{} [{}%]", size::formatted_compact(compressed), pcnt).into()
