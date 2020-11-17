@@ -19,10 +19,20 @@ impl DirectoryViewer {
         let mut mapped_entries = entries[viewed]
             .children
             .iter()
-            .map(|&entry| DirectoryEntry {
-                id: entry,
-                entry: Rc::clone(&entries[entry]),
-                selected: false,
+            .map(|&id| {
+                let entry = Rc::clone(&entries[id]);
+
+                let size = match &entry.props {
+                    EntryProperties::File(props) => size::formatted(props.raw_size_bytes),
+                    EntryProperties::Directory => entry.children.len().to_string(),
+                };
+
+                DirectoryEntry {
+                    id,
+                    entry,
+                    selected: false,
+                    size,
+                }
             })
             .collect::<Vec<_>>();
 
@@ -217,6 +227,7 @@ pub struct DirectoryEntry {
     pub id: NodeID,
     pub entry: Rc<ArchiveEntry>,
     pub selected: bool,
+    pub size: String,
 }
 
 struct RenderedItem<'a> {
@@ -290,21 +301,16 @@ impl<'a> Widget for RenderedItem<'a> {
             style,
         );
 
-        let desc_text = match &self.inner.entry.props {
-            EntryProperties::File(props) => size::formatted(props.raw_size_bytes),
-            EntryProperties::Directory => self.inner.entry.children.len().to_string(),
-        };
-
         let name_len = name_offset + self.inner.entry.name.len() as u16;
         let size_start = area
             .width
-            .saturating_sub(desc_text.len() as u16)
+            .saturating_sub(self.inner.size.len() as u16)
             .saturating_sub(BASE_SIZE_OFFSET);
         let remaining_space = size_start.saturating_sub(MIN_SPACING);
 
         // Draw the description of the entry only if we have enough room for it
         if remaining_space >= name_len {
-            buf.set_string(area.x + size_start, area.y, desc_text, style);
+            buf.set_string(area.x + size_start, area.y, &self.inner.size, style);
         }
     }
 }
