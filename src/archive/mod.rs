@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use std::ops::{Deref, Index};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{fs::File, rc::Rc};
 use zip::{read::ZipFile, ZipArchive};
 
@@ -26,10 +26,10 @@ impl Deref for NodeID {
 pub struct ArchiveEntries(Vec<Rc<ArchiveEntry>>);
 
 impl ArchiveEntries {
-    pub fn new_root() -> Self {
+    fn root(capacity: usize) -> Self {
         let root = ArchiveEntry::new_directory("/", None);
 
-        let mut entries = Vec::with_capacity(64);
+        let mut entries = Vec::with_capacity(1 + capacity);
         entries.push(Rc::new(root));
 
         Self(entries)
@@ -50,7 +50,7 @@ impl ArchiveEntries {
         let file = File::open(path).context("failed to open archive")?;
         let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
 
-        let mut entries = Self::new_root();
+        let mut entries = Self::root(archive.len());
 
         for i in 0..archive.len() {
             let file = archive
@@ -59,13 +59,9 @@ impl ArchiveEntries {
 
             // TODO: sanitize?
             let full_name = file.name();
-            let path = PathBuf::from(full_name);
-
             let mut cur_node = NodeID::first();
 
-            for component in path.iter() {
-                let component = component.to_string_lossy();
-
+            for component in full_name.split_terminator('/') {
                 let existing_pos = entries[cur_node]
                     .children
                     .iter()
@@ -92,8 +88,6 @@ impl ArchiveEntries {
                 cur_node = next_node_pos;
             }
         }
-
-        entries.0.shrink_to_fit();
 
         Ok(entries)
     }
