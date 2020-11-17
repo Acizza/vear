@@ -1,7 +1,10 @@
 use std::borrow::Cow;
 
-use crate::{archive::ArchiveEntries, util::size};
 use crate::{archive::ArchiveEntry, archive::EntryProperties};
+use crate::{
+    archive::{ArchiveEntries, NodeID},
+    util::size,
+};
 use tui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -9,86 +12,72 @@ use tui::{
     widgets::Widget,
 };
 
+#[derive(Clone)]
 pub struct EntryStats<'a> {
-    entries: &'a ArchiveEntries,
-    dir_entry: &'a ArchiveEntry,
-    selected: Option<&'a ArchiveEntry>,
+    date: Option<String>,
+    compressed_size: Option<String>,
+    total_size: Cow<'a, str>,
 }
 
 impl<'a> EntryStats<'a> {
     pub fn new(
-        entries: &'a ArchiveEntries,
-        dir_entry: &'a ArchiveEntry,
-        selected: Option<&'a ArchiveEntry>,
+        entries: &ArchiveEntries,
+        viewed_dir: NodeID,
+        selected: Option<&ArchiveEntry>,
     ) -> Self {
         Self {
-            entries,
-            dir_entry,
-            selected,
+            date: selected.and_then(Self::date_text),
+            compressed_size: selected.and_then(Self::compressed_size_text),
+            total_size: Self::total_size_text(entries, &entries[viewed_dir]),
         }
     }
 
-    fn draw_date(
-        &self,
-        selected: &ArchiveEntry,
-        alignment: Alignment,
-        area: Rect,
-        buf: &mut Buffer,
+    pub fn update(
+        &mut self,
+        entries: &ArchiveEntries,
+        viewed_dir: NodeID,
+        selected: Option<&ArchiveEntry>,
     ) {
-        let date = match &selected.last_modified {
-            Some(last_modified) => last_modified,
-            None => return,
-        };
-
-        let text = SimpleText::new(format!(
-            "{}-{:02}-{:02} {:02}:{:02}",
-            date.year, date.month, date.day, date.hour, date.minute,
-        ))
-        .alignment(alignment);
-
-        text.render(area, buf);
+        *self = Self::new(entries, viewed_dir, selected);
     }
 
-    fn draw_compressed_size(
-        &self,
-        selected: &ArchiveEntry,
-        alignment: Alignment,
-        area: Rect,
-        buf: &mut Buffer,
-    ) {
-        let (compressed, raw) = match &selected.props {
+    fn date_text(entry: &ArchiveEntry) -> Option<String> {
+        let date = match &entry.last_modified {
+            Some(last_modified) => last_modified,
+            None => return None,
+        };
+
+        format!(
+            "{}-{:02}-{:02} {:02}:{:02}",
+            date.year, date.month, date.day, date.hour, date.minute,
+        )
+        .into()
+    }
+
+    fn compressed_size_text(entry: &ArchiveEntry) -> Option<String> {
+        let (compressed, raw) = match &entry.props {
             EntryProperties::File(props) => (props.compressed_size_bytes, props.raw_size_bytes),
-            EntryProperties::Directory => return,
+            EntryProperties::Directory => return None,
         };
 
         let pcnt = ((compressed as f64 / raw as f64) * 100.0).round();
 
-        let text = SimpleText::new(format!(
-            "{} [{}%]",
-            size::formatted_compact(compressed),
-            pcnt
-        ))
-        .alignment(alignment);
-
-        text.render(area, buf);
+        format!("{} [{}%]", size::formatted_compact(compressed), pcnt).into()
     }
 
-    fn draw_total_size(&self, alignment: Alignment, area: Rect, buf: &mut Buffer) {
-        // TODO: only calculate once
-        let (raw_size, compressed_size) = self
-            .dir_entry
-            .children
-            .iter()
-            .map(|&id| &self.entries[id])
-            .fold((0, 0), |(acc_raw, acc_com), entry| match &entry.props {
+    fn total_size_text(entries: &ArchiveEntries, dir: &ArchiveEntry) -> Cow<'a, str> {
+        let (raw_size, compressed_size) = dir.children.iter().map(|&id| &entries[id]).fold(
+            (0, 0),
+            |(acc_raw, acc_com), entry| match &entry.props {
                 EntryProperties::File(props) => (
                     acc_raw + props.raw_size_bytes,
                     acc_com + props.compressed_size_bytes,
                 ),
                 EntryProperties::Directory => (acc_raw, acc_com),
-            });
+            },
+        );
 
-        let size_str = if raw_size == 0 {
+        if raw_size == 0 {
             Cow::Borrowed("empty")
         } else {
             let ratio = ((compressed_size as f64 / raw_size as f64) * 100.0).round();
@@ -100,10 +89,7 @@ impl<'a> EntryStats<'a> {
                 ratio
             )
             .into()
-        };
-
-        let text = SimpleText::new(size_str).alignment(alignment);
-        text.render(area, buf);
+        }
     }
 }
 
@@ -125,15 +111,22 @@ impl<'a> Widget for EntryStats<'a> {
             .horizontal_margin(MARGIN)
             .split(rect);
 
-        if let Some(selected) = &self.selected {
-            self.draw_date(selected, Alignment::Left, layout[0], buf);
-            self.draw_compressed_size(selected, Alignment::Center, layout[1], buf);
+        if let Some(date) = &self.date {
+            let text = SimpleText::new(date);
+            text.render(layout[0], buf);
         }
 
-        self.draw_total_size(Alignment::Right, layout[2], buf);
+        if let Some(compressed_size) = &self.compressed_size {
+            let text = SimpleText::new(compressed_size).alignment(Alignment::Center);
+            text.render(layout[1], buf);
+        }
+
+        let total_size = SimpleText::new(self.total_size).alignment(Alignment::Right);
+        total_size.render(layout[2], buf);
     }
 }
 
+/// This is a mimic of the tui crate's Span type that can be rendered without allocating.
 struct SimpleText<'a> {
     text: Cow<'a, str>,
     alignment: Alignment,

@@ -17,13 +17,13 @@ pub enum CycleResult {
     Error(anyhow::Error),
 }
 
-pub struct UI {
+pub struct UI<'a> {
     events: Events,
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
-    main_panel: MainPanel,
+    main_panel: MainPanel<'a>,
 }
 
-impl UI {
+impl<'a> UI<'a> {
     pub fn init(archive_entries: ArchiveEntries) -> Result<Self> {
         terminal::enable_raw_mode().context("failed to enable raw mode")?;
 

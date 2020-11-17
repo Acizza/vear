@@ -30,6 +30,7 @@ impl PathViewer {
         }
     }
 
+    #[inline(always)]
     pub fn viewed_dir(&self) -> NodeID {
         self.cur_dir.viewed
     }
@@ -41,29 +42,35 @@ impl PathViewer {
             .map(|selected| selected.entry.as_ref())
     }
 
+    pub fn selected_id(&self) -> Option<NodeID> {
+        self.cur_dir.entries.selected().map(|selected| selected.id)
+    }
+
     fn new_dir_viewer(&self, node: NodeID) -> DirectoryViewer {
         DirectoryViewer::new(&self.entries, node)
     }
 }
 
 impl Panel for PathViewer {
-    type KeyResult = ();
+    type KeyResult = PathViewerResult;
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match self.cur_dir.process_key(key) {
-            DirectoryResult::Ok => (),
+            DirectoryResult::Ok => PathViewerResult::Ok,
             DirectoryResult::EntryHighlight(id) => {
                 self.child_dir = if self.entries[id].props.is_dir() {
                     Some(self.new_dir_viewer(id))
                 } else {
                     None
                 };
+
+                PathViewerResult::PathSelected(id)
             }
             DirectoryResult::ViewChild(id) => {
                 let node = &self.entries[id];
 
                 if !node.props.is_dir() || node.children.is_empty() {
-                    return;
+                    return PathViewerResult::Ok;
                 }
 
                 let old_cur = {
@@ -78,11 +85,15 @@ impl Panel for PathViewer {
                     .entries
                     .selected()
                     .map(|selected| self.new_dir_viewer(selected.id));
+
+                self.selected_id()
+                    .map(PathViewerResult::PathSelected)
+                    .unwrap_or(PathViewerResult::Ok)
             }
             DirectoryResult::ViewParent(id) => {
                 let new_cur = match mem::take(&mut self.parent_dir) {
                     Some(new_cur) => new_cur,
-                    None => return,
+                    None => return PathViewerResult::Ok,
                 };
 
                 self.child_dir = Some(mem::replace(&mut self.cur_dir, new_cur));
@@ -95,6 +106,10 @@ impl Panel for PathViewer {
                 if let Some(parent) = parent {
                     self.parent_dir = Some(self.new_dir_viewer(parent));
                 }
+
+                self.selected_id()
+                    .map(PathViewerResult::PathSelected)
+                    .unwrap_or(PathViewerResult::Ok)
             }
         }
     }
@@ -123,4 +138,9 @@ impl<B: Backend> Draw<B> for PathViewer {
             child_dir.draw(layout[4], frame);
         }
     }
+}
+
+pub enum PathViewerResult {
+    Ok,
+    PathSelected(NodeID),
 }
