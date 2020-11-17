@@ -1,5 +1,6 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
 use crate::archive::{ArchiveEntries, ArchiveEntry, EntryProperties, NodeID};
+use crate::util::size;
 use std::ops::Range;
 use std::{ops::Deref, rc::Rc};
 use tui::buffer::{Buffer, Cell};
@@ -9,6 +10,7 @@ use tui::widgets::Widget;
 
 pub struct DirectoryViewer {
     pub entries: WrappedSelection<DirectoryEntry>,
+    pub viewed: NodeID,
     pub highlighted: NodeID,
 }
 
@@ -37,6 +39,7 @@ impl DirectoryViewer {
 
         Self {
             entries: WrappedSelection::new(mapped_entries),
+            viewed,
             highlighted,
         }
     }
@@ -288,7 +291,7 @@ impl<'a> Widget for RenderedItem<'a> {
         );
 
         let desc_text = match &self.inner.entry.props {
-            EntryProperties::File(props) => formatted_size(props.raw_size_bytes),
+            EntryProperties::File(props) => size::formatted(props.raw_size_bytes),
             EntryProperties::Directory => self.inner.entry.children.len().to_string(),
         };
 
@@ -315,42 +318,4 @@ where
             func(buf.get_mut(area.x + x, area.y + y))
         }
     }
-}
-
-fn formatted_size(bytes: u64) -> String {
-    const BASE_UNIT: u64 = 1024;
-
-    macro_rules! match_units {
-        ($($pow:expr => $unit_name:expr => $formatter:expr),+) => {{
-            $(
-            let threshold = BASE_UNIT.pow($pow);
-
-            if bytes >= threshold {
-                let raw_value = bytes as f64 / threshold as f64;
-
-                return if raw_value >= 10.0 {
-                    format!("{} {}", raw_value.round(), $unit_name)
-                } else {
-                    format!(concat!($formatter, " {}"), raw_value, $unit_name)
-                };
-            }
-            )+
-
-            #[cold]
-            unreachable!()
-        }};
-    }
-
-    match_units!(
-        // Terabytes
-        4 => "T" => "{:.02}",
-        // Gigabytes
-        3 => "G" => "{:.02}",
-        // Megabytes
-        2 => "M" => "{:.02}",
-        // Kilobytes
-        1 => "K" => "{:.02}",
-        // Bytes
-        0 => "B" => "{}"
-    )
 }

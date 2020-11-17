@@ -1,21 +1,21 @@
 mod directory;
 
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use crate::archive::{ArchiveEntries, NodeID};
+use crate::archive::{ArchiveEntries, ArchiveEntry, NodeID};
 use directory::{DirectoryResult, DirectoryViewer};
-use std::mem;
+use std::{mem, rc::Rc};
 use tui::layout::{Constraint, Direction, Layout};
 
 pub struct PathViewer {
-    entries: ArchiveEntries,
+    entries: Rc<ArchiveEntries>,
     parent_dir: Option<DirectoryViewer>,
     cur_dir: DirectoryViewer,
     child_dir: Option<DirectoryViewer>,
 }
 
 impl PathViewer {
-    pub fn new(entries: ArchiveEntries) -> Self {
-        let cur_dir = DirectoryViewer::new(&entries, NodeID::first());
+    pub fn new(entries: Rc<ArchiveEntries>, viewed: NodeID) -> Self {
+        let cur_dir = DirectoryViewer::new(&entries, viewed);
 
         let child_dir = cur_dir
             .entries
@@ -28,6 +28,17 @@ impl PathViewer {
             cur_dir,
             child_dir,
         }
+    }
+
+    pub fn viewed_dir(&self) -> NodeID {
+        self.cur_dir.viewed
+    }
+
+    pub fn selected(&self) -> Option<&ArchiveEntry> {
+        self.cur_dir
+            .entries
+            .selected()
+            .map(|selected| selected.entry.as_ref())
     }
 
     fn new_dir_viewer(&self, node: NodeID) -> DirectoryViewer {

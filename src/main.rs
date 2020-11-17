@@ -1,5 +1,6 @@
 mod archive;
 mod ui;
+mod util;
 
 use anyhow::{anyhow, Context, Result};
 use archive::ArchiveEntries;

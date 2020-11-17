@@ -27,7 +27,7 @@ pub struct ArchiveEntries(Vec<Rc<ArchiveEntry>>);
 
 impl ArchiveEntries {
     pub fn new_root() -> Self {
-        let root = ArchiveEntry::new_directory("/");
+        let root = ArchiveEntry::new_directory("/", None);
 
         let mut entries = Vec::with_capacity(64);
         entries.push(Rc::new(root));
@@ -119,28 +119,30 @@ impl Index<NodeID> for ArchiveEntries {
 pub struct ArchiveEntry {
     pub name: String,
     pub props: EntryProperties,
+    pub last_modified: Option<Date>,
     pub parent: Option<NodeID>,
     pub children: Vec<NodeID>,
 }
 
 impl ArchiveEntry {
-    pub fn new<S>(name: S, props: EntryProperties) -> Self
+    pub fn new<S>(name: S, props: EntryProperties, last_modified: Option<Date>) -> Self
     where
         S: Into<String>,
     {
         Self {
             name: name.into(),
             props,
+            last_modified,
             parent: None,
             children: Vec::new(),
         }
     }
 
-    pub fn new_directory<S>(name: S) -> Self
+    pub fn new_directory<S>(name: S, last_modified: Option<Date>) -> Self
     where
         S: Into<String>,
     {
-        Self::new(name, EntryProperties::Directory)
+        Self::new(name, EntryProperties::Directory, last_modified)
     }
 
     /// Create a new `ArchiveEntry` from a specific file path in an archive.
@@ -162,7 +164,7 @@ impl ArchiveEntry {
             EntryProperties::Directory
         };
 
-        Self::new(name, props)
+        Self::new(name, props, Some(file.last_modified().into()))
     }
 }
 
@@ -196,6 +198,27 @@ impl<'a> From<&ZipFile<'a>> for FileProperties {
         Self {
             raw_size_bytes: file.size(),
             compressed_size_bytes: file.compressed_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Date {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+}
+
+impl From<zip::DateTime> for Date {
+    fn from(date: zip::DateTime) -> Self {
+        Self {
+            year: date.year(),
+            month: date.month(),
+            day: date.day(),
+            hour: date.hour(),
+            minute: date.minute(),
         }
     }
 }
