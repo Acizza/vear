@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
-use crate::{archive::ArchiveEntry, archive::EntryProperties};
 use crate::{
-    archive::{ArchiveEntries, NodeID},
-    util::size,
+    archive::ArchiveEntry,
+    archive::{Archive, EntryProperties},
 };
+use crate::{archive::NodeID, util::size};
 use tui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -15,30 +15,28 @@ use tui::{
 #[derive(Clone)]
 pub struct EntryStats<'a> {
     date: Option<String>,
+    encoding: Option<&'static str>,
     compressed_size: Option<String>,
     total_size: Cow<'a, str>,
 }
 
 impl<'a> EntryStats<'a> {
-    pub fn new(
-        entries: &ArchiveEntries,
-        viewed_dir: NodeID,
-        selected: Option<&ArchiveEntry>,
-    ) -> Self {
+    pub fn new(archive: &Archive, viewed_dir: NodeID, selected: Option<&ArchiveEntry>) -> Self {
         Self {
             date: selected.and_then(Self::date_text),
+            encoding: selected.map(Self::encoding_text),
             compressed_size: selected.and_then(Self::compressed_size_text),
-            total_size: Self::total_size_text(entries, &entries[viewed_dir]),
+            total_size: Self::total_size_text(archive, &archive[viewed_dir]),
         }
     }
 
     pub fn update(
         &mut self,
-        entries: &ArchiveEntries,
+        archive: &Archive,
         viewed_dir: NodeID,
         selected: Option<&ArchiveEntry>,
     ) {
-        *self = Self::new(entries, viewed_dir, selected);
+        *self = Self::new(archive, viewed_dir, selected);
     }
 
     fn date_text(entry: &ArchiveEntry) -> Option<String> {
@@ -52,6 +50,10 @@ impl<'a> EntryStats<'a> {
             date.year, date.month, date.day, date.hour, date.minute,
         )
         .into()
+    }
+
+    fn encoding_text(entry: &ArchiveEntry) -> &'static str {
+        entry.encoding.name()
     }
 
     fn compressed_size_text(entry: &ArchiveEntry) -> Option<String> {
@@ -69,8 +71,8 @@ impl<'a> EntryStats<'a> {
         format!("{} [{}%]", size::formatted_compact(compressed), pcnt).into()
     }
 
-    fn total_size_text(entries: &ArchiveEntries, dir: &ArchiveEntry) -> Cow<'a, str> {
-        let (raw_size, compressed_size) = dir.children.iter().map(|&id| &entries[id]).fold(
+    fn total_size_text(archive: &Archive, dir: &ArchiveEntry) -> Cow<'a, str> {
+        let (raw_size, compressed_size) = dir.children.iter().map(|&id| &archive[id]).fold(
             (0, 0),
             |(acc_raw, acc_com), entry| match &entry.props {
                 EntryProperties::File(props) => (
@@ -107,9 +109,10 @@ impl<'a> Widget for EntryStats<'a> {
 
         let layout = Layout::default()
             .constraints([
-                Constraint::Ratio(1, 3),
-                Constraint::Ratio(1, 3),
-                Constraint::Ratio(1, 3),
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
+                Constraint::Ratio(1, 4),
             ])
             .direction(Direction::Horizontal)
             .horizontal_margin(MARGIN)
@@ -120,13 +123,18 @@ impl<'a> Widget for EntryStats<'a> {
             text.render(layout[0], buf);
         }
 
-        if let Some(compressed_size) = &self.compressed_size {
-            let text = SimpleText::new(compressed_size).alignment(Alignment::Center);
+        if let Some(encoding) = self.encoding {
+            let text = SimpleText::new(encoding).alignment(Alignment::Center);
             text.render(layout[1], buf);
         }
 
+        if let Some(compressed_size) = &self.compressed_size {
+            let text = SimpleText::new(compressed_size).alignment(Alignment::Center);
+            text.render(layout[2], buf);
+        }
+
         let total_size = SimpleText::new(self.total_size).alignment(Alignment::Right);
-        total_size.render(layout[2], buf);
+        total_size.render(layout[3], buf);
     }
 }
 

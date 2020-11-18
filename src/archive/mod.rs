@@ -1,6 +1,11 @@
 use anyhow::{anyhow, Context, Result};
-use std::ops::{Deref, Index};
+use chardetng::EncodingDetector;
+use encoding_rs::Encoding;
 use std::path::Path;
+use std::{
+    borrow::Cow,
+    ops::{Deref, Index},
+};
 use std::{fs::File, rc::Rc};
 use zip::{read::ZipFile, ZipArchive};
 
@@ -22,15 +27,34 @@ impl Deref for NodeID {
     }
 }
 
-#[derive(Debug)]
+pub struct Archive {
+    pub files: ArchiveEntries,
+}
+
+impl Archive {
+    pub fn read<P>(path: P) -> Result<Self>
+    where
+        P: AsRef<Path>,
+    {
+        let files = ArchiveEntries::read(path)?;
+        Ok(Self { files })
+    }
+}
+
+impl Index<NodeID> for Archive {
+    type Output = Rc<ArchiveEntry>;
+
+    fn index(&self, index: NodeID) -> &Self::Output {
+        &self.files[index]
+    }
+}
+
 pub struct ArchiveEntries(Vec<Rc<ArchiveEntry>>);
 
 impl ArchiveEntries {
-    fn root(capacity: usize) -> Self {
-        let root = ArchiveEntry::new_directory("/", None);
-
+    fn new(capacity: usize) -> Self {
         let mut entries = Vec::with_capacity(1 + capacity);
-        entries.push(Rc::new(root));
+        entries.push(Rc::new(ArchiveEntry::root()));
 
         Self(entries)
     }
@@ -50,18 +74,17 @@ impl ArchiveEntries {
         let file = File::open(path).context("failed to open archive")?;
         let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
 
-        let mut entries = Self::root(archive.len());
+        let mut entries = Self::new(archive.len());
 
         for i in 0..archive.len() {
             let file = archive
                 .by_index(i)
                 .with_context(|| anyhow!("failed to get archive file at index {}", i))?;
 
-            // TODO: sanitize?
-            let full_name = file.name();
+            let (path, encoding) = Self::decode_filename(file.name_raw());
             let mut cur_node = NodeID::first();
 
-            for component in full_name.split_terminator('/') {
+            for component in path.split_terminator('/') {
                 let existing_pos = entries[cur_node]
                     .children
                     .iter()
@@ -71,7 +94,7 @@ impl ArchiveEntries {
                 let next_node_pos = match existing_pos {
                     Some(pos) => pos,
                     None => {
-                        let mut entry = ArchiveEntry::from_path(component, full_name, &file);
+                        let mut entry = ArchiveEntry::from_path(component, &path, encoding, &file);
                         entry.parent = Some(cur_node);
 
                         let id = entries.push_entry(entry);
@@ -91,6 +114,15 @@ impl ArchiveEntries {
 
         Ok(entries)
     }
+
+    fn decode_filename(bytes: &[u8]) -> (Cow<str>, &'static Encoding) {
+        let mut detector = EncodingDetector::new();
+        detector.feed(bytes, true);
+        let encoding = detector.guess(None, true);
+
+        let (name, encoding, _) = encoding.decode(bytes);
+        (name, encoding)
+    }
 }
 
 impl Deref for ArchiveEntries {
@@ -109,17 +141,23 @@ impl Index<NodeID> for ArchiveEntries {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ArchiveEntry {
     pub name: String,
     pub props: EntryProperties,
     pub last_modified: Option<Date>,
+    pub encoding: &'static Encoding,
     pub parent: Option<NodeID>,
     pub children: Vec<NodeID>,
 }
 
 impl ArchiveEntry {
-    pub fn new<S>(name: S, props: EntryProperties, last_modified: Option<Date>) -> Self
+    pub fn new<S>(
+        name: S,
+        props: EntryProperties,
+        last_modified: Option<Date>,
+        encoding: &'static Encoding,
+    ) -> Self
     where
         S: Into<String>,
     {
@@ -127,16 +165,25 @@ impl ArchiveEntry {
             name: name.into(),
             props,
             last_modified,
+            encoding,
             parent: None,
             children: Vec::new(),
         }
     }
 
-    pub fn new_directory<S>(name: S, last_modified: Option<Date>) -> Self
+    pub fn new_directory<S>(
+        name: S,
+        last_modified: Option<Date>,
+        encoding: &'static Encoding,
+    ) -> Self
     where
         S: Into<String>,
     {
-        Self::new(name, EntryProperties::Directory, last_modified)
+        Self::new(name, EntryProperties::Directory, last_modified, encoding)
+    }
+
+    pub fn root() -> Self {
+        Self::new_directory("/'", None, encoding_rs::UTF_8)
     }
 
     /// Create a new `ArchiveEntry` from a specific file path in an archive.
@@ -144,7 +191,7 @@ impl ArchiveEntry {
     /// The `path` should be the full path of the given `file`, and the
     /// `name` should be a slice from the given `path`. This ensures
     /// that directories and files are detected properly.
-    fn from_path<S, P>(name: S, path: P, file: &ZipFile) -> Self
+    fn from_path<S, P>(name: S, path: P, encoding: &'static Encoding, file: &ZipFile) -> Self
     where
         S: Into<String>,
         P: AsRef<str>,
@@ -158,11 +205,11 @@ impl ArchiveEntry {
             EntryProperties::Directory
         };
 
-        Self::new(name, props, Some(file.last_modified().into()))
+        Self::new(name, props, Some(file.last_modified().into()), encoding)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum EntryProperties {
     Directory,
     File(FileProperties),
@@ -181,7 +228,7 @@ impl EntryProperties {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FileProperties {
     pub raw_size_bytes: u64,
     pub compressed_size_bytes: u64,
@@ -196,7 +243,7 @@ impl<'a> From<&ZipFile<'a>> for FileProperties {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Date {
     pub year: u16,
     pub month: u8,

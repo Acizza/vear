@@ -1,5 +1,5 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
-use crate::archive::{ArchiveEntries, ArchiveEntry, EntryProperties, NodeID};
+use crate::archive::{Archive, ArchiveEntry, EntryProperties, NodeID};
 use crate::util::size;
 use std::ops::Range;
 use std::{ops::Deref, rc::Rc};
@@ -15,12 +15,12 @@ pub struct DirectoryViewer {
 }
 
 impl DirectoryViewer {
-    pub fn new(entries: &ArchiveEntries, viewed: NodeID) -> Self {
-        let mut mapped_entries = entries[viewed]
+    pub fn new(archive: &Archive, viewed: NodeID) -> Self {
+        let mut mapped_entries = archive[viewed]
             .children
             .iter()
             .map(|&id| {
-                let entry = Rc::clone(&entries[id]);
+                let entry = Rc::clone(&archive[id]);
 
                 let size = match &entry.props {
                     EntryProperties::File(props) => size::formatted(props.raw_size_bytes),

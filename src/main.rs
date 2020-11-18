@@ -3,7 +3,7 @@ mod ui;
 mod util;
 
 use anyhow::{anyhow, Context, Result};
-use archive::ArchiveEntries;
+use archive::Archive;
 use gumdrop::Options;
 use std::path::PathBuf;
 use ui::{CycleResult, UI};
@@ -21,10 +21,10 @@ async fn main() -> Result<()> {
     let args = CmdArgs::parse_args_default_or_exit();
     let path = PathBuf::from(args.path.join(" "));
 
-    let archive_entries = ArchiveEntries::read(&path)
+    let archive = Archive::read(&path)
         .with_context(|| anyhow!("failed to read files from {}", path.display()))?;
 
-    let mut ui = UI::init(archive_entries)?;
+    let mut ui = UI::init(archive)?;
 
     loop {
         match ui.next_cycle().await {
