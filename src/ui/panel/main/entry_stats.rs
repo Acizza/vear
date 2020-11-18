@@ -18,15 +18,24 @@ pub struct EntryStats<'a> {
     encoding: Option<&'static str>,
     compressed_size: Option<String>,
     total_size: Cow<'a, str>,
+    selection: String,
 }
 
 impl<'a> EntryStats<'a> {
-    pub fn new(archive: &Archive, viewed_dir: NodeID, selected: Option<&ArchiveEntry>) -> Self {
+    pub fn new(
+        archive: &Archive,
+        viewed_dir: NodeID,
+        selected: Option<&ArchiveEntry>,
+        selected_idx: usize,
+    ) -> Self {
+        let dir_entry = &archive[viewed_dir];
+
         Self {
             date: selected.and_then(Self::date_text),
             encoding: selected.map(Self::encoding_text),
             compressed_size: selected.and_then(Self::compressed_size_text),
-            total_size: Self::total_size_text(archive, &archive[viewed_dir]),
+            total_size: Self::total_size_text(archive, dir_entry),
+            selection: Self::selection_text(dir_entry, selected_idx),
         }
     }
 
@@ -35,8 +44,9 @@ impl<'a> EntryStats<'a> {
         archive: &Archive,
         viewed_dir: NodeID,
         selected: Option<&ArchiveEntry>,
+        selected_idx: usize,
     ) {
-        *self = Self::new(archive, viewed_dir, selected);
+        *self = Self::new(archive, viewed_dir, selected, selected_idx);
     }
 
     fn date_text(entry: &ArchiveEntry) -> Option<String> {
@@ -89,7 +99,7 @@ impl<'a> EntryStats<'a> {
             let ratio = ((compressed_size as f64 / raw_size as f64) * 100.0).round();
 
             format!(
-                "{} / {} [{}%]",
+                "{}:{} [{}%]",
                 size::formatted_extra_compact(compressed_size),
                 size::formatted_extra_compact(raw_size),
                 ratio
@@ -97,11 +107,16 @@ impl<'a> EntryStats<'a> {
             .into()
         }
     }
+
+    fn selection_text(dir_entry: &ArchiveEntry, selected: usize) -> String {
+        format!("{}/{}", 1 + selected, dir_entry.children.len())
+    }
 }
 
 impl<'a> Widget for EntryStats<'a> {
     fn render(self, rect: Rect, buf: &mut Buffer) {
         const MARGIN: u16 = 1;
+        const PADDING: Constraint = Constraint::Length(2);
 
         if rect.width <= MARGIN || rect.height == 0 {
             return;
@@ -109,23 +124,33 @@ impl<'a> Widget for EntryStats<'a> {
 
         let layout = Layout::default()
             .constraints([
-                Constraint::Ratio(1, 4),
-                Constraint::Ratio(1, 4),
-                Constraint::Ratio(1, 4),
-                Constraint::Ratio(1, 4),
+                Constraint::Ratio(2, 5),
+                PADDING,
+                Constraint::Ratio(1, 5),
+                PADDING,
+                Constraint::Ratio(2, 5),
             ])
             .direction(Direction::Horizontal)
             .horizontal_margin(MARGIN)
             .split(rect);
 
+        let left_layout = Layout::default()
+            .constraints([
+                Constraint::Length(self.date.as_ref().map(|date| date.len()).unwrap_or(0) as u16),
+                Constraint::Length(2),
+                Constraint::Length(self.encoding.as_ref().map(|e| e.len()).unwrap_or(0) as u16),
+            ])
+            .direction(Direction::Horizontal)
+            .split(layout[0]);
+
         if let Some(date) = &self.date {
-            let text = SimpleText::new(date);
-            text.render(layout[0], buf);
+            let text = SimpleText::new(date).alignment(Alignment::Left);
+            text.render(left_layout[0], buf);
         }
 
         if let Some(encoding) = self.encoding {
-            let text = SimpleText::new(encoding).alignment(Alignment::Center);
-            text.render(layout[1], buf);
+            let text = SimpleText::new(encoding).alignment(Alignment::Left);
+            text.render(left_layout[2], buf);
         }
 
         if let Some(compressed_size) = &self.compressed_size {
@@ -133,8 +158,20 @@ impl<'a> Widget for EntryStats<'a> {
             text.render(layout[2], buf);
         }
 
+        let right_layout = Layout::default()
+            .constraints([
+                Constraint::Min(self.total_size.len() as u16),
+                PADDING,
+                Constraint::Length(self.selection.len() as u16),
+            ])
+            .direction(Direction::Horizontal)
+            .split(layout[4]);
+
         let total_size = SimpleText::new(self.total_size).alignment(Alignment::Right);
-        total_size.render(layout[3], buf);
+        total_size.render(right_layout[0], buf);
+
+        let selection = SimpleText::new(&self.selection).alignment(Alignment::Right);
+        selection.render(right_layout[2], buf);
     }
 }
 

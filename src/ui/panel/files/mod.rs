@@ -46,6 +46,10 @@ impl PathViewer {
         self.cur_dir.entries.selected().map(|selected| selected.id)
     }
 
+    pub fn selected_idx(&self) -> usize {
+        self.cur_dir.entries.index()
+    }
+
     fn new_dir_viewer(&self, node: NodeID) -> DirectoryViewer {
         DirectoryViewer::new(&self.archive, node)
     }

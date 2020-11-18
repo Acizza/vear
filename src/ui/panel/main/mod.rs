@@ -20,8 +20,12 @@ impl<'a> MainPanel<'a> {
         let archive = Rc::new(archive);
         let path_viewer = PathViewer::new(Rc::clone(&archive), NodeID::first());
 
-        let entry_stats =
-            EntryStats::new(&archive, path_viewer.viewed_dir(), path_viewer.selected());
+        let entry_stats = EntryStats::new(
+            &archive,
+            path_viewer.viewed_dir(),
+            path_viewer.selected(),
+            path_viewer.selected_idx(),
+        );
 
         Self {
             archive,
@@ -42,6 +46,7 @@ impl<'a> Panel for MainPanel<'a> {
                     &self.archive,
                     self.path_viewer.viewed_dir(),
                     Some(&self.archive[id]),
+                    self.path_viewer.selected_idx(),
                 );
             }
         }
