@@ -7,6 +7,7 @@ use tui::buffer::{Buffer, Cell};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
+use unicode_width::UnicodeWidthStr;
 
 pub struct DirectoryViewer {
     pub entries: WrappedSelection<DirectoryEntry>,
@@ -301,7 +302,7 @@ impl<'a> Widget for RenderedItem<'a> {
             style,
         );
 
-        let name_len = name_offset + self.inner.entry.name.len() as u16;
+        let name_len = name_offset + UnicodeWidthStr::width(self.inner.entry.name.as_str()) as u16;
         let size_start = area
             .width
             .saturating_sub(self.inner.size.len() as u16)
