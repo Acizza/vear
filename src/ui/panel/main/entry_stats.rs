@@ -15,37 +15,38 @@ use tui::{
 #[derive(Clone)]
 pub struct EntryStats<'a> {
     date: Option<String>,
-    encoding: Option<&'static str>,
+    encoding: &'static str,
     compressed_size: Option<String>,
     total_size: Cow<'a, str>,
     selection: String,
 }
 
 impl<'a> EntryStats<'a> {
-    pub fn new(
-        archive: &Archive,
-        viewed_dir: NodeID,
-        selected: Option<&ArchiveEntry>,
-        selected_idx: usize,
-    ) -> Self {
+    pub fn new<E>(archive: &Archive, viewed_dir: NodeID, selected: E, selected_idx: usize) -> Self
+    where
+        E: AsRef<ArchiveEntry>,
+    {
         let dir_entry = &archive[viewed_dir];
+        let selected = selected.as_ref();
 
         Self {
-            date: selected.and_then(Self::date_text),
-            encoding: selected.map(Self::encoding_text),
-            compressed_size: selected.and_then(Self::compressed_size_text),
+            date: Self::date_text(selected),
+            encoding: Self::encoding_text(selected),
+            compressed_size: Self::compressed_size_text(selected),
             total_size: Self::total_size_text(archive, dir_entry),
             selection: Self::selection_text(dir_entry, selected_idx),
         }
     }
 
-    pub fn update(
+    pub fn update<E>(
         &mut self,
         archive: &Archive,
         viewed_dir: NodeID,
-        selected: Option<&ArchiveEntry>,
+        selected: E,
         selected_idx: usize,
-    ) {
+    ) where
+        E: AsRef<ArchiveEntry>,
+    {
         *self = Self::new(archive, viewed_dir, selected, selected_idx);
     }
 
@@ -138,7 +139,7 @@ impl<'a> Widget for EntryStats<'a> {
             .constraints([
                 Constraint::Length(self.date.as_ref().map(|date| date.len()).unwrap_or(0) as u16),
                 Constraint::Length(2),
-                Constraint::Length(self.encoding.as_ref().map(|e| e.len()).unwrap_or(0) as u16),
+                Constraint::Length(self.encoding.len() as u16),
             ])
             .direction(Direction::Horizontal)
             .split(layout[0]);
@@ -148,10 +149,8 @@ impl<'a> Widget for EntryStats<'a> {
             text.render(left_layout[0], buf);
         }
 
-        if let Some(encoding) = self.encoding {
-            let text = SimpleText::new(encoding).alignment(Alignment::Left);
-            text.render(left_layout[2], buf);
-        }
+        let encoding = SimpleText::new(self.encoding).alignment(Alignment::Left);
+        encoding.render(left_layout[2], buf);
 
         if let Some(compressed_size) = &self.compressed_size {
             let text = SimpleText::new(compressed_size).alignment(Alignment::Center);

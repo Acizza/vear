@@ -1,11 +1,14 @@
 mod directory;
 
+use self::directory::DirectoryEntry;
+
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use crate::archive::{Archive, ArchiveEntry, NodeID};
+use crate::archive::{Archive, NodeID};
 use directory::{DirectoryResult, DirectoryViewer};
 use std::{mem, rc::Rc};
 use tui::layout::{Constraint, Direction, Layout};
 
+/// Widget to navigate and browse a given directory with its parent and child to ease navigation.
 pub struct PathViewer {
     archive: Rc<Archive>,
     parent_dir: Option<DirectoryViewer>,
@@ -14,43 +17,40 @@ pub struct PathViewer {
 }
 
 impl PathViewer {
-    pub fn new(archive: Rc<Archive>, viewed: NodeID) -> Self {
-        let cur_dir = DirectoryViewer::new(&archive, viewed);
+    /// Create a new `PathViewer` to view the given `directory` in the given `archive`.
+    ///
+    /// Returns None if the given `directory` has no entries (children) to show.
+    pub fn new(archive: Rc<Archive>, directory: NodeID) -> Option<Self> {
+        let cur_dir = DirectoryViewer::new(&archive, directory)?;
+        let child_dir = DirectoryViewer::new(&archive, cur_dir.selected().id);
 
-        let child_dir = cur_dir
-            .entries
-            .selected()
-            .map(|selected| DirectoryViewer::new(&archive, selected.id));
-
-        Self {
+        Some(Self {
             archive,
             parent_dir: None,
             cur_dir,
             child_dir,
-        }
+        })
     }
 
     #[inline(always)]
-    pub fn viewed_dir(&self) -> NodeID {
-        self.cur_dir.viewed
+    pub fn directory(&self) -> NodeID {
+        self.cur_dir.directory()
     }
 
-    pub fn selected(&self) -> Option<&ArchiveEntry> {
-        self.cur_dir
-            .entries
-            .selected()
-            .map(|selected| selected.entry.as_ref())
+    /// Returns a reference to the selected `DirectoryEntry` from the currently viewed directory.
+    #[inline(always)]
+    pub fn selected(&self) -> &DirectoryEntry {
+        &self.cur_dir.selected()
     }
 
-    pub fn selected_id(&self) -> Option<NodeID> {
-        self.cur_dir.entries.selected().map(|selected| selected.id)
+    /// Returns the index of the selected entry in the currently viewed directory.
+    #[inline(always)]
+    pub fn selected_index(&self) -> usize {
+        self.cur_dir.selected_index()
     }
 
-    pub fn selected_idx(&self) -> usize {
-        self.cur_dir.entries.index()
-    }
-
-    fn new_dir_viewer(&self, node: NodeID) -> DirectoryViewer {
+    #[inline(always)]
+    fn new_dir_viewer(&self, node: NodeID) -> Option<DirectoryViewer> {
         DirectoryViewer::new(&self.archive, node)
     }
 }
@@ -63,7 +63,7 @@ impl Panel for PathViewer {
             DirectoryResult::Ok => PathViewerResult::Ok,
             DirectoryResult::EntryHighlight(id) => {
                 self.child_dir = if self.archive[id].props.is_dir() {
-                    Some(self.new_dir_viewer(id))
+                    self.new_dir_viewer(id)
                 } else {
                     None
                 };
@@ -71,28 +71,18 @@ impl Panel for PathViewer {
                 PathViewerResult::PathSelected(id)
             }
             DirectoryResult::ViewChild(id) => {
-                let node = &self.archive[id];
-
-                if !node.props.is_dir() || node.children.is_empty() {
-                    return PathViewerResult::Ok;
-                }
-
-                let old_cur = {
-                    let replacement = self.new_dir_viewer(id);
-                    mem::replace(&mut self.cur_dir, replacement)
+                let new_cur = match self.new_dir_viewer(id) {
+                    Some(new_cur) => new_cur,
+                    None => return PathViewerResult::Ok,
                 };
 
+                let old_cur = mem::replace(&mut self.cur_dir, new_cur);
+                let selected_node = self.selected().id;
+
                 self.parent_dir = Some(old_cur);
+                self.child_dir = self.new_dir_viewer(selected_node);
 
-                self.child_dir = self
-                    .cur_dir
-                    .entries
-                    .selected()
-                    .map(|selected| self.new_dir_viewer(selected.id));
-
-                self.selected_id()
-                    .map(PathViewerResult::PathSelected)
-                    .unwrap_or(PathViewerResult::Ok)
+                PathViewerResult::PathSelected(selected_node)
             }
             DirectoryResult::ViewParent(id) => {
                 let new_cur = match mem::take(&mut self.parent_dir) {
@@ -108,12 +98,10 @@ impl Panel for PathViewer {
                     .and_then(|parent| self.archive[parent].parent);
 
                 if let Some(parent) = parent {
-                    self.parent_dir = Some(self.new_dir_viewer(parent));
+                    self.parent_dir = self.new_dir_viewer(parent);
                 }
 
-                self.selected_id()
-                    .map(PathViewerResult::PathSelected)
-                    .unwrap_or(PathViewerResult::Ok)
+                PathViewerResult::PathSelected(self.selected().id)
             }
         }
     }

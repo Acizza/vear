@@ -25,6 +25,10 @@ pub struct UI<'a> {
 
 impl<'a> UI<'a> {
     pub fn init(archive: Archive) -> Result<Self> {
+        // We should initialize failable panels before touching the terminal so we don't need to cleanup anything
+        // if one fails
+        let main_panel = MainPanel::new(archive)?;
+
         terminal::enable_raw_mode().context("failed to enable raw mode")?;
 
         let stdout = io::stdout();
@@ -40,7 +44,7 @@ impl<'a> UI<'a> {
         Ok(Self {
             events: Events::new(),
             terminal,
-            main_panel: MainPanel::new(archive),
+            main_panel,
         })
     }
 

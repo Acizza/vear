@@ -1,13 +1,12 @@
 mod entry_stats;
 
-use std::rc::Rc;
-
-use tui::layout::{Constraint, Direction, Layout};
-
 use self::entry_stats::EntryStats;
 use super::files::{PathViewer, PathViewerResult};
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use crate::archive::{Archive, NodeID};
+use anyhow::{Context, Result};
+use std::rc::Rc;
+use tui::layout::{Constraint, Direction, Layout};
 
 pub struct MainPanel<'a> {
     archive: Rc<Archive>,
@@ -16,22 +15,23 @@ pub struct MainPanel<'a> {
 }
 
 impl<'a> MainPanel<'a> {
-    pub fn new(archive: Archive) -> Self {
+    pub fn new(archive: Archive) -> Result<Self> {
         let archive = Rc::new(archive);
-        let path_viewer = PathViewer::new(Rc::clone(&archive), NodeID::first());
+        let path_viewer =
+            PathViewer::new(Rc::clone(&archive), NodeID::first()).context("archive is empty")?;
 
         let entry_stats = EntryStats::new(
             &archive,
-            path_viewer.viewed_dir(),
+            path_viewer.directory(),
             path_viewer.selected(),
-            path_viewer.selected_idx(),
+            path_viewer.selected_index(),
         );
 
-        Self {
+        Ok(Self {
             archive,
             path_viewer,
             entry_stats,
-        }
+        })
     }
 }
 
@@ -44,9 +44,9 @@ impl<'a> Panel for MainPanel<'a> {
             PathViewerResult::PathSelected(id) => {
                 self.entry_stats.update(
                     &self.archive,
-                    self.path_viewer.viewed_dir(),
-                    Some(&self.archive[id]),
-                    self.path_viewer.selected_idx(),
+                    self.path_viewer.directory(),
+                    &self.archive[id],
+                    self.path_viewer.selected_index(),
                 );
             }
         }

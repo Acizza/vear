@@ -9,15 +9,25 @@ use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
 use unicode_width::UnicodeWidthStr;
 
+/// Widget to browse a given directory.
 pub struct DirectoryViewer {
-    pub entries: WrappedSelection<DirectoryEntry>,
-    pub viewed: NodeID,
-    pub highlighted: NodeID,
+    entries: WrappedSelection<DirectoryEntry>,
+    directory: NodeID,
+    highlighted: NodeID,
 }
 
 impl DirectoryViewer {
-    pub fn new(archive: &Archive, viewed: NodeID) -> Self {
-        let mut mapped_entries = archive[viewed]
+    /// Create a new `DirectoryViewer` to view the given `directory` in the given `archive`.
+    ///
+    /// Returns None if the given `directory` has no entries (children) to show.
+    pub fn new(archive: &Archive, directory: NodeID) -> Option<Self> {
+        let dir_entry = &archive[directory];
+
+        if dir_entry.children.is_empty() {
+            return None;
+        }
+
+        let mut children = dir_entry
             .children
             .iter()
             .map(|&id| {
@@ -37,22 +47,20 @@ impl DirectoryViewer {
             })
             .collect::<Vec<_>>();
 
-        mapped_entries.sort_unstable_by(|x, y| {
+        children.sort_unstable_by(|x, y| {
             let by_kind_desc = y.entry.props.is_dir().cmp(&x.entry.props.is_dir());
             let by_name_desc = x.entry.name.cmp(&y.entry.name);
             by_kind_desc.then(by_name_desc)
         });
 
-        let highlighted = mapped_entries
-            .first()
-            .map(|entry| entry.id)
-            .unwrap_or(viewed);
+        // We're guaranteed to have at least one child, so this is safe
+        let highlighted = children[0].id;
 
-        Self {
-            entries: WrappedSelection::new(mapped_entries),
-            viewed,
+        Some(Self {
+            entries: WrappedSelection::new(children),
+            directory,
             highlighted,
-        }
+        })
     }
 
     /// Calculate how many items are visible based off a given cursor position.
@@ -85,6 +93,21 @@ impl DirectoryViewer {
 
         Range { start, end }
     }
+
+    #[inline(always)]
+    pub fn selected(&self) -> &DirectoryEntry {
+        self.entries.selected()
+    }
+
+    #[inline(always)]
+    pub fn selected_index(&self) -> usize {
+        self.entries.index()
+    }
+
+    #[inline(always)]
+    pub fn directory(&self) -> NodeID {
+        self.directory
+    }
 }
 
 impl Panel for DirectoryViewer {
@@ -93,42 +116,28 @@ impl Panel for DirectoryViewer {
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
         match key {
             KeyCode::Up | KeyCode::Down => {
-                let new_node = match key {
+                let &DirectoryEntry { id, .. } = match key {
                     KeyCode::Up => self.entries.prev(),
                     KeyCode::Down => self.entries.next(),
                     _ => unreachable!(),
                 };
 
-                match new_node {
-                    Some(&DirectoryEntry { id, .. }) => {
-                        self.highlighted = id;
-                        DirectoryResult::EntryHighlight(id)
-                    }
-                    None => DirectoryResult::Ok,
-                }
+                self.highlighted = id;
+                DirectoryResult::EntryHighlight(id)
             }
             KeyCode::Char(' ') => {
-                let entry = match self.entries.selected_mut() {
-                    Some(entry) => entry,
-                    None => return DirectoryResult::Ok,
-                };
-
+                let entry = self.entries.selected_mut();
                 entry.selected = !entry.selected;
 
-                if let Some(entry) = self.entries.next() {
-                    self.highlighted = entry.id;
-                }
+                let next = self.entries.next();
+                self.highlighted = next.id;
 
                 DirectoryResult::Ok
             }
-            KeyCode::Right | KeyCode::Enter => match self.entries.selected() {
-                Some(entry) => DirectoryResult::ViewChild(entry.id),
-                None => DirectoryResult::Ok,
-            },
-            KeyCode::Left => match self.entries.selected() {
-                Some(entry) => DirectoryResult::ViewParent(entry.id),
-                None => DirectoryResult::Ok,
-            },
+            KeyCode::Right | KeyCode::Enter => {
+                DirectoryResult::ViewChild(self.entries.selected().id)
+            }
+            KeyCode::Left => DirectoryResult::ViewParent(self.entries.selected().id),
             _ => DirectoryResult::Ok,
         }
     }
@@ -183,30 +192,30 @@ where
     }
 
     #[inline(always)]
-    pub fn next(&mut self) -> Option<&T> {
+    pub fn next(&mut self) -> &T {
         self.index = (self.index + 1) % self.items.len().max(1);
-        self.items.get(self.index)
+        self.selected()
     }
 
     #[inline(always)]
-    pub fn prev(&mut self) -> Option<&T> {
+    pub fn prev(&mut self) -> &T {
         self.index = if self.index == 0 {
             self.items.len().saturating_sub(1)
         } else {
             self.index - 1
         };
 
-        self.items.get(self.index)
+        self.selected()
     }
 
     #[inline(always)]
-    pub fn selected(&self) -> Option<&T> {
-        self.items.get(self.index)
+    pub fn selected(&self) -> &T {
+        &self.items[self.index]
     }
 
     #[inline(always)]
-    pub fn selected_mut(&mut self) -> Option<&mut T> {
-        self.items.get_mut(self.index)
+    pub fn selected_mut(&mut self) -> &mut T {
+        &mut self.items[self.index]
     }
 
     #[inline(always)]
@@ -229,6 +238,12 @@ pub struct DirectoryEntry {
     pub entry: Rc<ArchiveEntry>,
     pub selected: bool,
     pub size: String,
+}
+
+impl AsRef<ArchiveEntry> for DirectoryEntry {
+    fn as_ref(&self) -> &ArchiveEntry {
+        &self.entry
+    }
 }
 
 struct RenderedItem<'a> {
