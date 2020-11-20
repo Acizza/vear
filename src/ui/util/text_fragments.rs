@@ -32,7 +32,7 @@ impl<'a> TextFragments<'a> {
     }
 
     fn can_draw_at_x(area: Rect, x: u16) -> bool {
-        x < area.x + area.width && area.height > 0
+        x < area.right() && area.height > 0
     }
 }
 
