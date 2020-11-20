@@ -137,7 +137,7 @@ impl<'a> Widget for EntryStats<'a> {
 
         let left_layout = Layout::default()
             .constraints([
-                Constraint::Length(self.date.as_ref().map(|date| date.len()).unwrap_or(0) as u16),
+                Constraint::Length(self.date.as_ref().map_or(0, String::len) as u16),
                 Constraint::Length(2),
                 Constraint::Length(self.encoding.len() as u16),
             ])

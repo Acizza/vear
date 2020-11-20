@@ -91,22 +91,19 @@ impl ArchiveEntries {
                     .find(|&&id| entries[id].name == component)
                     .cloned();
 
-                let next_node_pos = match existing_pos {
-                    Some(pos) => pos,
-                    None => {
-                        let mut entry = ArchiveEntry::from_path(component, &path, encoding, &file);
-                        entry.parent = Some(cur_node);
+                let next_node_pos = existing_pos.unwrap_or_else(|| {
+                    let mut entry = ArchiveEntry::from_path(component, &path, encoding, &file);
+                    entry.parent = Some(cur_node);
 
-                        let id = entries.push_entry(entry);
+                    let id = entries.push_entry(entry);
 
-                        Rc::get_mut(&mut entries.0[*cur_node])
-                            .unwrap()
-                            .children
-                            .push(id);
+                    Rc::get_mut(&mut entries.0[*cur_node])
+                        .unwrap()
+                        .children
+                        .push(id);
 
-                        id
-                    }
-                };
+                    id
+                });
 
                 cur_node = next_node_pos;
             }

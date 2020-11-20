@@ -169,6 +169,6 @@ pub trait FragmentedWidget {
 
     /// Returns a reference to every text fragment.
     ///
-    /// The [text_fragments] macro can be used in some cases to build the array.
+    /// The [`text_fragments`] macro can be used in some cases to build the array.
     fn fragments(&self) -> &[Fragment];
 }

@@ -14,7 +14,6 @@ pub mod size {
                 }
                 )+
 
-                #[cold]
                 (bytes as f64, "B")
             }};
         }

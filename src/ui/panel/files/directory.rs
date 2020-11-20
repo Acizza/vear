@@ -63,37 +63,6 @@ impl DirectoryViewer {
         })
     }
 
-    /// Calculate how many items are visible based off a given cursor position.
-    ///
-    /// Returns a range that represents the visible bounds.
-    fn scroll_window(&self, cursor: usize, num_items: usize, height: usize) -> Range<usize> {
-        // Scrolling will only happen if the cursor is beyond this threshold
-        let base_threshold = height / 2;
-
-        if cursor < base_threshold || num_items <= height {
-            let range = Range {
-                start: 0,
-                end: num_items.min(height),
-            };
-
-            return range;
-        }
-
-        // We can now assume there needs to be at least one item that needs to
-        // be scrolled and factor that into our offset
-        let offset = 1 + (cursor - base_threshold);
-        let end = (offset + height).min(num_items);
-
-        let start = if end == num_items {
-            // The remaining items will now fit
-            num_items.saturating_sub(height)
-        } else {
-            offset
-        };
-
-        Range { start, end }
-    }
-
     #[inline(always)]
     pub fn selected(&self) -> &DirectoryEntry {
         self.entries.selected()
@@ -149,7 +118,7 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
             return;
         }
 
-        let window = self.scroll_window(
+        let window = scroll_window(
             self.entries.index(),
             self.entries.len(),
             rect.height as usize,
@@ -340,4 +309,35 @@ where
             func(buf.get_mut(area.x + x, area.y + y))
         }
     }
+}
+
+/// Calculate how many items are visible based off a given cursor position.
+///
+/// Returns a range that represents the visible bounds.
+fn scroll_window(cursor: usize, num_items: usize, height: usize) -> Range<usize> {
+    // Scrolling will only happen if the cursor is beyond this threshold
+    let base_threshold = height / 2;
+
+    if cursor < base_threshold || num_items <= height {
+        let range = Range {
+            start: 0,
+            end: num_items.min(height),
+        };
+
+        return range;
+    }
+
+    // We can now assume there needs to be at least one item that needs to
+    // be scrolled and factor that into our offset
+    let offset = 1 + (cursor - base_threshold);
+    let end = (offset + height).min(num_items);
+
+    let start = if end == num_items {
+        // The remaining items will now fit
+        num_items.saturating_sub(height)
+    } else {
+        offset
+    };
+
+    Range { start, end }
 }

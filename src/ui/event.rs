@@ -29,6 +29,7 @@ impl Events {
         }
     }
 
+    #[allow(clippy::mut_mut)]
     pub async fn next(&mut self) -> EventError<Option<EventKind>> {
         let mut tick = Delay::new(Duration::from_millis(Self::TICK_DURATION_MS)).fuse();
         let mut next_event = self.reader.next().fuse();

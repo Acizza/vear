@@ -63,7 +63,7 @@ impl<'a> UI<'a> {
 
         match event {
             EventKind::Key(key) => self.process_key(key),
-            EventKind::Tick => self.tick(),
+            EventKind::Tick => CycleResult::Ok,
         }
     }
 
@@ -84,10 +84,6 @@ impl<'a> UI<'a> {
         }
 
         self.main_panel.process_key(key);
-        CycleResult::Ok
-    }
-
-    fn tick(&mut self) -> CycleResult {
         CycleResult::Ok
     }
 
