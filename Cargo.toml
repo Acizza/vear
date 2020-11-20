@@ -6,11 +6,11 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
+argh = "0.1"
 chardetng = "0.1"
 encoding_rs = "0.8"
 futures = "0.3"
 futures-timer = "3.0"
-gumdrop = "0.8"
 unicode-width = "0.1"
 zip = "0.5"
 
