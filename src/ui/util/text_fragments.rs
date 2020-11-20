@@ -8,8 +8,8 @@ use tui::{
 
 /// Draw text in fragments without allocating.
 ///
-/// This serves as a relative simple replacement for `tui::widget::Paragraph`.
-/// It is meant to be used for relative simple text layouts that don't need multiple lines or scrolling.
+/// This serves as a relatively simple replacement for `tui::widget::Paragraph`.
+/// It is meant to be used for simple text layouts that don't need multiple lines or scrolling.
 ///
 /// On naive benchmarks, this solution is at least 4x as fast as `tui::widget::Paragraph`.
 pub struct TextFragments<'a> {
