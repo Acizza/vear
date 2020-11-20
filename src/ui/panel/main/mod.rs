@@ -1,9 +1,13 @@
 mod entry_stats;
+mod key_hints;
 
-use self::entry_stats::EntryStats;
+use self::{entry_stats::EntryStats, key_hints::KeyHints};
 use super::files::{PathViewer, PathViewerResult};
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
-use crate::archive::{Archive, NodeID};
+use crate::{
+    archive::{Archive, NodeID},
+    ui::util::pad_rect_horiz,
+};
 use anyhow::{Context, Result};
 use std::rc::Rc;
 use tui::layout::{Constraint, Direction, Layout};
@@ -57,8 +61,13 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
     fn draw(&mut self, rect: Rect, frame: &mut Frame<B>) {
         let layout = Layout::default()
             .constraints([
+                // Path viewer
                 Constraint::Min(5),
+                // Padding
                 Constraint::Length(1),
+                // Entry stats
+                Constraint::Length(1),
+                // Key hints
                 Constraint::Length(1),
             ])
             .direction(Direction::Vertical)
@@ -67,5 +76,14 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
         self.path_viewer.draw(layout[0], frame);
 
         frame.render_widget(self.entry_stats.clone(), layout[2]);
+
+        let key_hints = KeyHints {
+            extract_to_dir_key: 'S',
+            extract_to_cwd_key: 'E',
+            mount_at_dir_key: 'L',
+            mount_at_tmp_key: 'M',
+        };
+
+        frame.render_widget(key_hints, pad_rect_horiz(layout[3], 1));
     }
 }

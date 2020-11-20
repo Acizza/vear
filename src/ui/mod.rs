@@ -1,5 +1,6 @@
 mod event;
 mod panel;
+mod util;
 
 use crate::archive::Archive;
 use anyhow::{Context, Result};

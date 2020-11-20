@@ -3,12 +3,12 @@ use std::borrow::Cow;
 use crate::{
     archive::ArchiveEntry,
     archive::{Archive, EntryProperties},
+    ui::util::SimpleText,
 };
 use crate::{archive::NodeID, util::size};
 use tui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::Style,
     widgets::Widget,
 };
 
@@ -171,53 +171,5 @@ impl<'a> Widget for EntryStats<'a> {
 
         let selection = SimpleText::new(&self.selection).alignment(Alignment::Right);
         selection.render(right_layout[2], buf);
-    }
-}
-
-/// This is a mimic of the tui crate's Span type that can be rendered without allocating.
-struct SimpleText<'a> {
-    text: Cow<'a, str>,
-    alignment: Alignment,
-    style: Style,
-}
-
-impl<'a> SimpleText<'a> {
-    fn new<S>(text: S) -> Self
-    where
-        S: Into<Cow<'a, str>>,
-    {
-        Self {
-            text: text.into(),
-            alignment: Alignment::Left,
-            style: Style::default(),
-        }
-    }
-
-    #[inline(always)]
-    fn alignment(mut self, alignment: Alignment) -> Self {
-        self.alignment = alignment;
-        self
-    }
-
-    fn alignment_offset(&self, total_len: u16, item_len: u16) -> u16 {
-        match self.alignment {
-            Alignment::Left => 0,
-            Alignment::Center => (total_len / 2).saturating_sub(item_len / 2),
-            Alignment::Right => total_len - item_len,
-        }
-    }
-}
-
-impl<'a> Widget for SimpleText<'a> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let len = self.text.len() as u16;
-
-        if area.width < len {
-            return;
-        }
-
-        let offset = self.alignment_offset(area.width, len);
-
-        buf.set_string(area.x + offset, area.y, self.text, self.style);
     }
 }
