@@ -4,6 +4,7 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::shadow_unrelated)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::default_trait_access)]
 
 mod archive;
 mod ui;

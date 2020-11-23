@@ -79,11 +79,16 @@ impl<'a> UI<'a> {
     }
 
     fn process_key(&mut self, key: KeyCode) -> CycleResult {
+        let locked = self.main_panel.process_key(key);
+
+        if locked == InputLock::Locked {
+            return CycleResult::Ok;
+        }
+
         if key == KeyCode::Char('q') {
             return CycleResult::Exit;
         }
 
-        self.main_panel.process_key(key);
         CycleResult::Ok
     }
 
@@ -91,4 +96,10 @@ impl<'a> UI<'a> {
         self.terminal.clear().ok();
         terminal::disable_raw_mode().map_err(Into::into)
     }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum InputLock {
+    Locked,
+    Unlocked,
 }

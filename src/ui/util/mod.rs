@@ -1,8 +1,9 @@
+pub mod input;
 pub mod text_fragments;
 
 use std::borrow::Cow;
 use tui::{
-    buffer::Buffer,
+    buffer::{Buffer, Cell},
     layout::{Alignment, Rect},
     style::Style,
     widgets::Widget,
@@ -61,5 +62,24 @@ pub fn pad_rect_horiz(rect: Rect, padding: u16) -> Rect {
         x: rect.x + padding,
         width: rect.width.saturating_sub(padding * 2),
         ..rect
+    }
+}
+
+pub fn pad_rect_left(rect: Rect, padding: u16) -> Rect {
+    Rect {
+        x: rect.x + padding,
+        width: rect.width.saturating_sub(padding),
+        ..rect
+    }
+}
+
+pub fn fill_area<F>(area: Rect, buf: &mut Buffer, func: F)
+where
+    F: Fn(&mut Cell),
+{
+    for x in 0..area.width {
+        for y in 0..area.height {
+            func(buf.get_mut(area.x + x, area.y + y))
+        }
     }
 }

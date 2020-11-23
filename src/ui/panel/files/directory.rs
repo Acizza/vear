@@ -1,9 +1,12 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
-use crate::archive::{Archive, ArchiveEntry, EntryProperties, NodeID};
 use crate::util::size;
+use crate::{
+    archive::{Archive, ArchiveEntry, EntryProperties, NodeID},
+    ui::util::fill_area,
+};
 use std::ops::Range;
 use std::{ops::Deref, rc::Rc};
-use tui::buffer::{Buffer, Cell};
+use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::Widget;
@@ -296,17 +299,6 @@ impl<'a> Widget for RenderedItem<'a> {
         // Draw the description of the entry only if we have enough room for it
         if remaining_space >= name_len {
             buf.set_string(area.x + size_start, area.y, &self.inner.size, style);
-        }
-    }
-}
-
-fn fill_area<F>(area: Rect, buf: &mut Buffer, func: F)
-where
-    F: Fn(&mut Cell),
-{
-    for x in 0..area.width {
-        for y in 0..area.height {
-            func(buf.get_mut(area.x + x, area.y + y))
         }
     }
 }

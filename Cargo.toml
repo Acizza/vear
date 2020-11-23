@@ -12,6 +12,7 @@ encoding_rs = "0.8"
 futures = "0.3"
 futures-timer = "3.0"
 unicode-width = "0.1"
+unicode-segmentation = "1.7"
 zip = "0.5"
 
 [dependencies.async-std]

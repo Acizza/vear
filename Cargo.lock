@@ -954,6 +954,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "tui",
+ "unicode-segmentation",
  "unicode-width",
  "zip",
 ]
