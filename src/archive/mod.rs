@@ -1,12 +1,17 @@
 use anyhow::{anyhow, Context, Result};
 use chardetng::EncodingDetector;
 use encoding_rs::Encoding;
-use std::path::Path;
 use std::{
     borrow::Cow,
+    io,
     ops::{Deref, Index},
+    path::PathBuf,
 };
-use std::{fs::File, rc::Rc};
+use std::{
+    fs::{self, File},
+    rc::Rc,
+};
+use std::{io::Read, io::Seek, path::Path};
 use zip::{read::ZipFile, ZipArchive};
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -28,6 +33,7 @@ impl Deref for NodeID {
 }
 
 pub struct Archive {
+    archive: ZipArchive<File>,
     pub files: ArchiveEntries,
 }
 
@@ -36,8 +42,70 @@ impl Archive {
     where
         P: AsRef<Path>,
     {
-        let files = ArchiveEntries::read(path)?;
-        Ok(Self { files })
+        let file = File::open(path).context("failed to open archive")?;
+        let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
+        let files = ArchiveEntries::read(&mut archive)?;
+
+        Ok(Self { archive, files })
+    }
+
+    pub fn extract<P>(&mut self, base_node: NodeID, out_path: P) -> Result<()>
+    where
+        P: AsRef<Path> + Into<PathBuf>,
+    {
+        fs::create_dir_all(&out_path).context("failed to create base output path")?;
+
+        let mut queue = Vec::with_capacity(32);
+        queue.push((base_node, out_path.into()));
+
+        while let Some((node_id, mut path)) = queue.pop() {
+            let node = &self.files[node_id];
+            let name = &node.name;
+            let is_root = node_id == NodeID::first();
+
+            if !is_root {
+                if !Self::is_valid_filename(name) {
+                    return Err(anyhow!("archive tried to escape extraction path: {}", name));
+                }
+
+                path.push(name);
+                Self::extract_file(&mut self.archive, node, &path)?;
+            }
+
+            for &child_id in &node.children {
+                queue.push((child_id, path.clone()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn extract_file(
+        archive: &mut ZipArchive<File>,
+        entry: &ArchiveEntry,
+        out_path: &Path,
+    ) -> Result<()> {
+        match &entry.props {
+            EntryProperties::Directory => fs::create_dir(&out_path)
+                .with_context(|| anyhow!("failed to create directory: {}", out_path.display()))?,
+            EntryProperties::File(_) => {
+                let mut file = File::create(&out_path)
+                    .with_context(|| anyhow!("failed to create file: {}", out_path.display()))?;
+
+                let mut archive_file = archive.by_index(entry.entry_num).with_context(|| {
+                    anyhow!("failed to get {} from archive", out_path.display())
+                })?;
+
+                io::copy(&mut archive_file, &mut file)
+                    .with_context(|| anyhow!("failed to extract file: {}", out_path.display()))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_valid_filename(name: &str) -> bool {
+        !matches!(name, ".." | "." | "/")
     }
 }
 
@@ -67,13 +135,10 @@ impl ArchiveEntries {
     }
 
     // TODO: make generic over archive type
-    pub fn read<P>(path: P) -> Result<Self>
+    pub fn read<R>(archive: &mut ZipArchive<R>) -> Result<Self>
     where
-        P: AsRef<Path>,
+        R: Read + Seek,
     {
-        let file = File::open(path).context("failed to open archive")?;
-        let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
-
         let mut entries = Self::new(archive.len());
 
         for i in 0..archive.len() {
@@ -82,6 +147,7 @@ impl ArchiveEntries {
                 .with_context(|| anyhow!("failed to get archive file at index {}", i))?;
 
             let (path, encoding) = Self::decode_filename(file.name_raw());
+
             let mut cur_node = NodeID::first();
 
             for component in path.split_terminator('/') {
@@ -92,7 +158,7 @@ impl ArchiveEntries {
                     .cloned();
 
                 let next_node_pos = existing_pos.unwrap_or_else(|| {
-                    let mut entry = ArchiveEntry::from_path(component, &path, encoding, &file);
+                    let mut entry = ArchiveEntry::from_path(component, i, &path, encoding, &file);
                     entry.parent = Some(cur_node);
 
                     let id = entries.push_entry(entry);
@@ -144,6 +210,7 @@ pub struct ArchiveEntry {
     pub props: EntryProperties,
     pub last_modified: Option<Date>,
     pub encoding: &'static Encoding,
+    pub entry_num: usize,
     pub parent: Option<NodeID>,
     pub children: Vec<NodeID>,
 }
@@ -151,6 +218,7 @@ pub struct ArchiveEntry {
 impl ArchiveEntry {
     pub fn new<S>(
         name: S,
+        entry_num: usize,
         props: EntryProperties,
         last_modified: Option<Date>,
         encoding: &'static Encoding,
@@ -160,6 +228,7 @@ impl ArchiveEntry {
     {
         Self {
             name: name.into(),
+            entry_num,
             props,
             last_modified,
             encoding,
@@ -170,17 +239,24 @@ impl ArchiveEntry {
 
     pub fn new_directory<S>(
         name: S,
+        entry_num: usize,
         last_modified: Option<Date>,
         encoding: &'static Encoding,
     ) -> Self
     where
         S: Into<String>,
     {
-        Self::new(name, EntryProperties::Directory, last_modified, encoding)
+        Self::new(
+            name,
+            entry_num,
+            EntryProperties::Directory,
+            last_modified,
+            encoding,
+        )
     }
 
     pub fn root() -> Self {
-        Self::new_directory("/'", None, encoding_rs::UTF_8)
+        Self::new_directory("/", 0, None, encoding_rs::UTF_8)
     }
 
     /// Create a new `ArchiveEntry` from a specific file path in an archive.
@@ -188,7 +264,13 @@ impl ArchiveEntry {
     /// The `path` should be the full path of the given `file`, and the
     /// `name` should be a slice from the given `path`. This ensures
     /// that directories and files are detected properly.
-    fn from_path<S, P>(name: S, path: P, encoding: &'static Encoding, file: &ZipFile) -> Self
+    fn from_path<S, P>(
+        name: S,
+        entry_num: usize,
+        path: P,
+        encoding: &'static Encoding,
+        file: &ZipFile,
+    ) -> Self
     where
         S: Into<String>,
         P: AsRef<str>,
@@ -202,7 +284,13 @@ impl ArchiveEntry {
             EntryProperties::Directory
         };
 
-        Self::new(name, props, Some(file.last_modified().into()), encoding)
+        Self::new(
+            name,
+            entry_num,
+            props,
+            Some(file.last_modified().into()),
+            encoding,
+        )
     }
 }
 

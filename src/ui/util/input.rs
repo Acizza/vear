@@ -133,10 +133,6 @@ impl InputState {
         self.cursor_pos = Some((area.x + offset, area.y));
     }
 
-    pub fn reset(&mut self) {
-        self.caret.clear();
-    }
-
     fn visible_slice(&self, width: usize) -> &str {
         let start = self.visible_offset(width);
         let end = (start + width).min(self.caret.buffer.len());
@@ -223,12 +219,6 @@ impl Caret {
     fn move_end(&mut self) {
         self.cursor.set_cursor(self.buffer.len());
         self.display_offset = UnicodeWidthStr::width(self.buffer.as_str());
-    }
-
-    fn clear(&mut self) {
-        self.buffer.clear();
-        self.cursor = GraphemeCursor::new(0, 0, true);
-        self.display_offset = 0;
     }
 
     #[inline(always)]

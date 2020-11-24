@@ -15,11 +15,10 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
-use std::rc::Rc;
 use tui::layout::{Constraint, Direction, Layout};
 
 pub struct MainPanel<'a> {
-    archive: Rc<Archive>,
+    archive: Archive,
     path_viewer: PathViewer,
     entry_stats: EntryStats<'a>,
     state: PanelState,
@@ -32,9 +31,7 @@ impl<'a> MainPanel<'a> {
     const MOUNT_AT_TMP_KEY: char = 'm';
 
     pub fn new(archive: Archive) -> Result<Self> {
-        let archive = Rc::new(archive);
-        let path_viewer =
-            PathViewer::new(Rc::clone(&archive), NodeID::first()).context("archive is empty")?;
+        let path_viewer = PathViewer::new(&archive, NodeID::first()).context("archive is empty")?;
 
         let entry_stats = EntryStats::new(
             &archive,
@@ -52,7 +49,7 @@ impl<'a> MainPanel<'a> {
     }
 
     fn process_path_viewer_key(&mut self, key: KeyCode) {
-        match self.path_viewer.process_key(key) {
+        match self.path_viewer.process_key(key, &self.archive) {
             PathViewerResult::Ok => (),
             PathViewerResult::PathSelected(id) => {
                 self.entry_stats.update(
@@ -73,13 +70,13 @@ impl<'a> Panel for MainPanel<'a> {
         match &mut self.state {
             PanelState::Navigating => match key {
                 KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) | KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => {
-                    let desc = match key {
-                        KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) => "extract to",
-                        KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => "mount at",
+                    let action = match key {
+                        KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) => InputAction::Extract,
+                        KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => InputAction::Mount,
                         _ => unreachable!(),
                     };
 
-                    self.state = PanelState::Input(InputState::new(), desc);
+                    self.state = PanelState::Input(InputState::new(), action);
                     InputLock::Locked
                 }
                 key => {
@@ -87,12 +84,21 @@ impl<'a> Panel for MainPanel<'a> {
                     InputLock::Unlocked
                 }
             },
-            PanelState::Input(input, _) => {
+            PanelState::Input(input, action) => {
                 match input.process_key(key) {
                     InputResult::Ok => (),
                     InputResult::Return => self.state = PanelState::Navigating,
-                    InputResult::ProcessInput(_) => {
-                        input.reset();
+                    InputResult::ProcessInput(path) => {
+                        match action {
+                            // TODO: handle unwrap
+                            InputAction::Extract => self
+                                .archive
+                                .extract(self.path_viewer.selected().id, path)
+                                .unwrap(),
+                            InputAction::Mount => unimplemented!(),
+                        }
+
+                        self.state = PanelState::Navigating;
                     }
                 }
 
@@ -133,8 +139,8 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
 
                 frame.render_widget(key_hints, pad_rect_horiz(layout[3], 1));
             }
-            PanelState::Input(state, desc) => {
-                let input = Input::new(desc);
+            PanelState::Input(state, action) => {
+                let input = Input::new(action.desc());
                 frame.render_stateful_widget(input, layout[3], state);
 
                 if let Some((x, y)) = state.cursor_pos {
@@ -145,11 +151,24 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
     }
 }
 
-type Description = &'static str;
-
 enum PanelState {
     Navigating,
-    Input(InputState, Description),
+    Input(InputState, InputAction),
+}
+
+#[derive(Copy, Clone)]
+enum InputAction {
+    Extract,
+    Mount,
+}
+
+impl InputAction {
+    fn desc(self) -> &'static str {
+        match self {
+            Self::Extract => "extract to",
+            Self::Mount => "mount at",
+        }
+    }
 }
 
 // TODO: use char::to_ascii_uppercase if/when it's made a const fn
