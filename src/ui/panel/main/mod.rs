@@ -36,8 +36,8 @@ impl<'a> MainPanel<'a> {
         let entry_stats = EntryStats::new(
             &archive,
             path_viewer.directory(),
-            path_viewer.selected(),
-            path_viewer.selected_index(),
+            path_viewer.highlighted(),
+            path_viewer.highlighted_index(),
         );
 
         Ok(Self {
@@ -56,7 +56,7 @@ impl<'a> MainPanel<'a> {
                     &self.archive,
                     self.path_viewer.directory(),
                     &self.archive[id],
-                    self.path_viewer.selected_index(),
+                    self.path_viewer.highlighted_index(),
                 );
             }
         }
@@ -93,7 +93,7 @@ impl<'a> Panel for MainPanel<'a> {
                             // TODO: handle unwrap
                             InputAction::Extract => self
                                 .archive
-                                .extract(self.path_viewer.selected().id, path)
+                                .extract(self.path_viewer.selected_ids(), path)
                                 .unwrap(),
                             InputAction::Mount => unimplemented!(),
                         }

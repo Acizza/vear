@@ -4,6 +4,7 @@ use crate::{
     archive::{Archive, ArchiveEntry, EntryProperties, NodeID},
     ui::util::fill_area,
 };
+use smallvec::{smallvec, SmallVec};
 use std::ops::Range;
 use std::{ops::Deref, rc::Rc};
 use tui::buffer::Buffer;
@@ -67,18 +68,32 @@ impl DirectoryViewer {
     }
 
     #[inline(always)]
-    pub fn selected(&self) -> &DirectoryEntry {
+    pub fn highlighted(&self) -> &DirectoryEntry {
         self.entries.selected()
     }
 
     #[inline(always)]
-    pub fn selected_index(&self) -> usize {
+    pub fn highlighted_index(&self) -> usize {
         self.entries.index()
     }
 
     #[inline(always)]
     pub fn directory(&self) -> NodeID {
         self.directory
+    }
+
+    pub fn selected_ids(&self) -> SmallVec<[NodeID; 4]> {
+        let selected = self
+            .entries
+            .iter()
+            .filter_map(|entry| if entry.selected { Some(entry.id) } else { None })
+            .collect::<SmallVec<_>>();
+
+        if selected.is_empty() {
+            smallvec![self.highlighted().id]
+        } else {
+            selected
+        }
     }
 }
 

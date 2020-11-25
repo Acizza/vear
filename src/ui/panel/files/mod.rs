@@ -5,6 +5,7 @@ use self::directory::DirectoryEntry;
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use crate::archive::{Archive, NodeID};
 use directory::{DirectoryResult, DirectoryViewer};
+use smallvec::SmallVec;
 use std::mem;
 use tui::layout::{Constraint, Direction, Layout};
 
@@ -21,7 +22,7 @@ impl PathViewer {
     /// Returns None if the given `directory` has no entries (children) to show.
     pub fn new(archive: &Archive, directory: NodeID) -> Option<Self> {
         let cur_dir = DirectoryViewer::new(&archive, directory)?;
-        let child_dir = DirectoryViewer::new(&archive, cur_dir.selected().id);
+        let child_dir = DirectoryViewer::new(&archive, cur_dir.highlighted().id);
 
         Some(Self {
             parent_dir: None,
@@ -49,12 +50,12 @@ impl PathViewer {
                 };
 
                 let old_cur = mem::replace(&mut self.cur_dir, new_cur);
-                let selected_node = self.selected().id;
+                let highlighted_node = self.highlighted().id;
 
                 self.parent_dir = Some(old_cur);
-                self.child_dir = DirectoryViewer::new(archive, selected_node);
+                self.child_dir = DirectoryViewer::new(archive, highlighted_node);
 
-                PathViewerResult::PathSelected(selected_node)
+                PathViewerResult::PathSelected(highlighted_node)
             }
             DirectoryResult::ViewParent(id) => {
                 let new_cur = match mem::take(&mut self.parent_dir) {
@@ -73,7 +74,7 @@ impl PathViewer {
                     self.parent_dir = DirectoryViewer::new(archive, parent);
                 }
 
-                PathViewerResult::PathSelected(self.selected().id)
+                PathViewerResult::PathSelected(self.highlighted().id)
             }
         }
     }
@@ -83,16 +84,20 @@ impl PathViewer {
         self.cur_dir.directory()
     }
 
-    /// Returns a reference to the selected `DirectoryEntry` from the currently viewed directory.
+    /// Returns a reference to the currently highlighted [`DirectoryEntry`].
     #[inline(always)]
-    pub fn selected(&self) -> &DirectoryEntry {
-        &self.cur_dir.selected()
+    pub fn highlighted(&self) -> &DirectoryEntry {
+        self.cur_dir.highlighted()
+    }
+
+    pub fn selected_ids(&self) -> SmallVec<[NodeID; 4]> {
+        self.cur_dir.selected_ids()
     }
 
     /// Returns the index of the selected entry in the currently viewed directory.
     #[inline(always)]
-    pub fn selected_index(&self) -> usize {
-        self.cur_dir.selected_index()
+    pub fn highlighted_index(&self) -> usize {
+        self.cur_dir.highlighted_index()
     }
 }
 

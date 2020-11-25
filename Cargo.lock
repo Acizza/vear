@@ -895,6 +895,7 @@ dependencies = [
  "encoding_rs",
  "futures",
  "futures-timer",
+ "smallvec",
  "tui",
  "unicode-segmentation",
  "unicode-width",

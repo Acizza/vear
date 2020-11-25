@@ -49,14 +49,19 @@ impl Archive {
         Ok(Self { archive, files })
     }
 
-    pub fn extract<P>(&mut self, base_node: NodeID, out_path: P) -> Result<()>
+    pub fn extract<I, P>(&mut self, nodes: I, out_path: P) -> Result<()>
     where
+        I: IntoIterator<Item = NodeID>,
         P: AsRef<Path> + Into<PathBuf>,
     {
         fs::create_dir_all(&out_path).context("failed to create base output path")?;
 
+        let out_path = out_path.into();
         let mut queue = Vec::with_capacity(32);
-        queue.push((base_node, out_path.into()));
+
+        for node in nodes {
+            queue.push((node, out_path.clone()));
+        }
 
         while let Some((node_id, mut path)) = queue.pop() {
             let node = &self.files[node_id];
