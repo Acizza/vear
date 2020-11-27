@@ -14,7 +14,7 @@ use std::{io::Read, io::Seek, path::Path};
 use zip::{read::ZipFile, ZipArchive};
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct NodeID(usize);
+pub struct NodeID(u32);
 
 impl NodeID {
     #[inline(always)]
@@ -24,7 +24,7 @@ impl NodeID {
 }
 
 impl Deref for NodeID {
-    type Target = usize;
+    type Target = u32;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -72,7 +72,7 @@ impl ArchiveEntries {
 
     #[inline(always)]
     fn push_entry(&mut self, node: ArchiveEntry) -> NodeID {
-        let next = NodeID(self.len());
+        let next = NodeID(self.len() as u32);
         self.0.push(node);
         next
     }
@@ -105,7 +105,7 @@ impl ArchiveEntries {
                     entry.parent = Some(cur_node);
 
                     let id = entries.push_entry(entry);
-                    entries.0[*cur_node].children.push(id);
+                    entries.0[*cur_node as usize].children.push(id);
                     id
                 });
 
@@ -146,7 +146,7 @@ impl Index<NodeID> for ArchiveEntries {
     type Output = ArchiveEntry;
 
     fn index(&self, index: NodeID) -> &Self::Output {
-        &self.0[*index]
+        &self.0[*index as usize]
     }
 }
 
