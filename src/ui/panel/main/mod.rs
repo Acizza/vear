@@ -1,5 +1,6 @@
 mod entry_stats;
 mod key_hints;
+mod progress_bar;
 
 use self::{entry_stats::EntryStats, key_hints::KeyHints};
 use super::files::{PathViewer, PathViewerResult};
@@ -9,7 +10,7 @@ use crate::{
     ui::{
         util::{
             input::{Input, InputResult, InputState},
-            pad_rect_horiz, SimpleText,
+            pad_rect_horiz,
         },
         InputLock,
     },
@@ -17,6 +18,7 @@ use crate::{
 use anyhow::{Context, Result};
 use async_std::task;
 use parking_lot::Mutex;
+use progress_bar::ProgressBar;
 use std::sync::{atomic::Ordering, Arc};
 use tui::layout::{Constraint, Direction, Layout};
 
@@ -159,9 +161,8 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
                 let total_ext = extractor.total_to_extract as f32;
                 let pcnt = ((extracted / total_ext) * 100.0).round() as u8;
 
-                let temp_text = SimpleText::new(format!("{}%", pcnt));
-
-                frame.render_widget(temp_text, pad_rect_horiz(layout[3], 1));
+                let progress = ProgressBar::new(pcnt);
+                frame.render_widget(progress, layout[3]);
             }
             PanelState::Input(state, action) => {
                 let input = Input::new(action.desc());
