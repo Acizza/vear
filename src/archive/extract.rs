@@ -29,8 +29,8 @@ impl Extractor {
             archive
                 .files
                 .children_iter(&base_nodes)
-                .fold(0, |acc, _| acc + 1)
-                .min(archive.files.len() as u32)
+                .count()
+                .min(archive.files.len()) as u32
         };
 
         Self {
