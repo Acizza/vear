@@ -22,12 +22,14 @@ pub struct EntryStats<'a> {
 }
 
 impl<'a> EntryStats<'a> {
-    pub fn new<E>(archive: &Archive, viewed_dir: NodeID, selected: E, selected_idx: usize) -> Self
-    where
-        E: AsRef<ArchiveEntry>,
-    {
+    pub fn new(
+        archive: &Archive,
+        viewed_dir: NodeID,
+        selected: NodeID,
+        selected_idx: usize,
+    ) -> Self {
         let dir_entry = &archive[viewed_dir];
-        let selected = selected.as_ref();
+        let selected = &archive[selected];
 
         Self {
             date: Self::date_text(selected),
@@ -38,15 +40,13 @@ impl<'a> EntryStats<'a> {
         }
     }
 
-    pub fn update<E>(
+    pub fn update(
         &mut self,
         archive: &Archive,
         viewed_dir: NodeID,
-        selected: E,
+        selected: NodeID,
         selected_idx: usize,
-    ) where
-        E: AsRef<ArchiveEntry>,
-    {
+    ) {
         *self = Self::new(archive, viewed_dir, selected, selected_idx);
     }
 

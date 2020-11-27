@@ -5,6 +5,7 @@
 #![allow(clippy::shadow_unrelated)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::default_trait_access)]
+#![allow(clippy::cast_sign_loss)]
 
 mod archive;
 mod ui;

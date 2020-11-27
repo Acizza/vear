@@ -1,15 +1,14 @@
+pub mod extract;
+
 use anyhow::{anyhow, Context, Result};
 use chardetng::EncodingDetector;
 use encoding_rs::Encoding;
+use parking_lot::Mutex;
+use std::fs::File;
 use std::{
     borrow::Cow,
-    io,
     ops::{Deref, Index},
     path::PathBuf,
-};
-use std::{
-    fs::{self, File},
-    rc::Rc,
 };
 use std::{io::Read, io::Seek, path::Path};
 use zip::{read::ZipFile, ZipArchive};
@@ -33,7 +32,7 @@ impl Deref for NodeID {
 }
 
 pub struct Archive {
-    archive: ZipArchive<File>,
+    inner: Mutex<ZipArchive<File>>,
     pub files: ArchiveEntries,
 }
 
@@ -46,88 +45,27 @@ impl Archive {
         let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
         let files = ArchiveEntries::read(&mut archive)?;
 
-        Ok(Self { archive, files })
-    }
-
-    pub fn extract<I, P>(&mut self, nodes: I, out_path: P) -> Result<()>
-    where
-        I: IntoIterator<Item = NodeID>,
-        P: AsRef<Path> + Into<PathBuf>,
-    {
-        fs::create_dir_all(&out_path).context("failed to create base output path")?;
-
-        let out_path = out_path.into();
-        let mut queue = Vec::with_capacity(32);
-
-        for node in nodes {
-            queue.push((node, out_path.clone()));
-        }
-
-        while let Some((node_id, mut path)) = queue.pop() {
-            let node = &self.files[node_id];
-            let name = &node.name;
-            let is_root = node_id == NodeID::first();
-
-            if !is_root {
-                if !Self::is_valid_filename(name) {
-                    return Err(anyhow!("archive tried to escape extraction path: {}", name));
-                }
-
-                path.push(name);
-                Self::extract_file(&mut self.archive, node, &path)?;
-            }
-
-            for &child_id in &node.children {
-                queue.push((child_id, path.clone()));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn extract_file(
-        archive: &mut ZipArchive<File>,
-        entry: &ArchiveEntry,
-        out_path: &Path,
-    ) -> Result<()> {
-        match &entry.props {
-            EntryProperties::Directory => fs::create_dir(&out_path)
-                .with_context(|| anyhow!("failed to create directory: {}", out_path.display()))?,
-            EntryProperties::File(_) => {
-                let mut file = File::create(&out_path)
-                    .with_context(|| anyhow!("failed to create file: {}", out_path.display()))?;
-
-                let mut archive_file = archive.by_index(entry.entry_num).with_context(|| {
-                    anyhow!("failed to get {} from archive", out_path.display())
-                })?;
-
-                io::copy(&mut archive_file, &mut file)
-                    .with_context(|| anyhow!("failed to extract file: {}", out_path.display()))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn is_valid_filename(name: &str) -> bool {
-        !matches!(name, ".." | "." | "/")
+        Ok(Self {
+            inner: Mutex::new(archive),
+            files,
+        })
     }
 }
 
 impl Index<NodeID> for Archive {
-    type Output = Rc<ArchiveEntry>;
+    type Output = ArchiveEntry;
 
     fn index(&self, index: NodeID) -> &Self::Output {
         &self.files[index]
     }
 }
 
-pub struct ArchiveEntries(Vec<Rc<ArchiveEntry>>);
+pub struct ArchiveEntries(Vec<ArchiveEntry>);
 
 impl ArchiveEntries {
     fn new(capacity: usize) -> Self {
         let mut entries = Vec::with_capacity(1 + capacity);
-        entries.push(Rc::new(ArchiveEntry::root()));
+        entries.push(ArchiveEntry::root());
 
         Self(entries)
     }
@@ -135,12 +73,12 @@ impl ArchiveEntries {
     #[inline(always)]
     fn push_entry(&mut self, node: ArchiveEntry) -> NodeID {
         let next = NodeID(self.len());
-        self.0.push(Rc::new(node));
+        self.0.push(node);
         next
     }
 
     // TODO: make generic over archive type
-    pub fn read<R>(archive: &mut ZipArchive<R>) -> Result<Self>
+    fn read<R>(archive: &mut ZipArchive<R>) -> Result<Self>
     where
         R: Read + Seek,
     {
@@ -167,12 +105,7 @@ impl ArchiveEntries {
                     entry.parent = Some(cur_node);
 
                     let id = entries.push_entry(entry);
-
-                    Rc::get_mut(&mut entries.0[*cur_node])
-                        .unwrap()
-                        .children
-                        .push(id);
-
+                    entries.0[*cur_node].children.push(id);
                     id
                 });
 
@@ -191,10 +124,18 @@ impl ArchiveEntries {
         let (name, encoding, _) = encoding.decode(bytes);
         (name, encoding)
     }
+
+    #[inline(always)]
+    pub fn children_iter<'a, I>(&self, nodes: I) -> ChildrenIter
+    where
+        I: IntoIterator<Item = &'a NodeID>,
+    {
+        ChildrenIter::new(nodes, &self)
+    }
 }
 
 impl Deref for ArchiveEntries {
-    type Target = Vec<Rc<ArchiveEntry>>;
+    type Target = Vec<ArchiveEntry>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -202,11 +143,54 @@ impl Deref for ArchiveEntries {
 }
 
 impl Index<NodeID> for ArchiveEntries {
-    type Output = Rc<ArchiveEntry>;
+    type Output = ArchiveEntry;
 
     fn index(&self, index: NodeID) -> &Self::Output {
         &self.0[*index]
     }
+}
+
+pub struct ChildrenIter<'a> {
+    queue: Vec<(NodeID, PathBuf)>,
+    files: &'a ArchiveEntries,
+}
+
+impl<'a> ChildrenIter<'a> {
+    fn new<'b, I>(base_nodes: I, files: &'a ArchiveEntries) -> Self
+    where
+        I: IntoIterator<Item = &'b NodeID>,
+    {
+        let mut queue = Vec::with_capacity(32);
+
+        for node in base_nodes {
+            queue.push((*node, PathBuf::new()));
+        }
+
+        Self { queue, files }
+    }
+}
+
+impl<'a> Iterator for ChildrenIter<'a> {
+    type Item = (NodeID, &'a ArchiveEntry, PathBuf);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (id, mut path) = self.queue.pop()?;
+        let node = &self.files[id];
+
+        if is_valid_filename(&node.name) {
+            path.push(&node.name);
+        }
+
+        for &child in &node.children {
+            self.queue.push((child, path.clone()));
+        }
+
+        Some((id, node, path))
+    }
+}
+
+fn is_valid_filename(name: &str) -> bool {
+    !matches!(name, ".." | "." | "/")
 }
 
 #[derive(Clone)]

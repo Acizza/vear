@@ -6,7 +6,7 @@ use crate::{
 };
 use smallvec::{smallvec, SmallVec};
 use std::ops::Range;
-use std::{ops::Deref, rc::Rc};
+use std::{ops::Deref, sync::Arc};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
@@ -15,16 +15,17 @@ use unicode_width::UnicodeWidthStr;
 
 /// Widget to browse a given directory.
 pub struct DirectoryViewer {
+    archive: Arc<Archive>,
     entries: WrappedSelection<DirectoryEntry>,
     directory: NodeID,
     highlighted: NodeID,
 }
 
 impl DirectoryViewer {
-    /// Create a new `DirectoryViewer` to view the given `directory` in the given `archive`.
+    /// Create a new [`DirectoryViewer`] to view the given `directory` in the given `archive`.
     ///
     /// Returns None if the given `directory` has no entries (children) to show.
-    pub fn new(archive: &Archive, directory: NodeID) -> Option<Self> {
+    pub fn new(archive: Arc<Archive>, directory: NodeID) -> Option<Self> {
         let dir_entry = &archive[directory];
 
         if dir_entry.children.is_empty() {
@@ -35,7 +36,7 @@ impl DirectoryViewer {
             .children
             .iter()
             .map(|&id| {
-                let entry = Rc::clone(&archive[id]);
+                let entry = &archive[id];
 
                 let size = match &entry.props {
                     EntryProperties::File(props) => size::formatted(props.raw_size_bytes),
@@ -44,7 +45,6 @@ impl DirectoryViewer {
 
                 DirectoryEntry {
                     id,
-                    entry,
                     selected: false,
                     size,
                 }
@@ -52,8 +52,11 @@ impl DirectoryViewer {
             .collect::<Vec<_>>();
 
         children.sort_unstable_by(|x, y| {
-            let by_kind_desc = y.entry.props.is_dir().cmp(&x.entry.props.is_dir());
-            let by_name_desc = x.entry.name.cmp(&y.entry.name);
+            let x = &archive[x.id];
+            let y = &archive[y.id];
+
+            let by_kind_desc = y.props.is_dir().cmp(&x.props.is_dir());
+            let by_name_desc = x.name.cmp(&y.name);
             by_kind_desc.then(by_name_desc)
         });
 
@@ -61,6 +64,7 @@ impl DirectoryViewer {
         let highlighted = children[0].id;
 
         Some(Self {
+            archive,
             entries: WrappedSelection::new(children),
             directory,
             highlighted,
@@ -145,7 +149,7 @@ impl<B: Backend> Draw<B> for DirectoryViewer {
         let items = &self.entries[window.start..window.end];
 
         for (i, item) in items.iter().enumerate() {
-            let rendered = RenderedItem::new(item, item.id == self.highlighted);
+            let rendered = RenderedItem::new(&self.archive, item, item.id == self.highlighted);
 
             let pos = Rect {
                 y: rect.y + (i as u16),
@@ -222,37 +226,35 @@ impl<T> Deref for WrappedSelection<T> {
 #[derive(Clone)]
 pub struct DirectoryEntry {
     pub id: NodeID,
-    pub entry: Rc<ArchiveEntry>,
     pub selected: bool,
     pub size: String,
 }
 
-impl AsRef<ArchiveEntry> for DirectoryEntry {
-    fn as_ref(&self) -> &ArchiveEntry {
-        &self.entry
-    }
-}
-
 struct RenderedItem<'a> {
-    inner: &'a DirectoryEntry,
+    archive: &'a Archive,
+    entry: &'a DirectoryEntry,
     highlighted: bool,
 }
 
 impl<'a> RenderedItem<'a> {
-    fn new(inner: &'a DirectoryEntry, highlighted: bool) -> Self {
-        Self { inner, highlighted }
+    fn new(archive: &'a Archive, entry: &'a DirectoryEntry, highlighted: bool) -> Self {
+        Self {
+            archive,
+            entry,
+            highlighted,
+        }
     }
 
-    fn apply_line_color(&self, area: Rect, buf: &mut Buffer) {
+    fn apply_line_color(&self, node: &ArchiveEntry, area: Rect, buf: &mut Buffer) {
         const WHITE: Color = Color::Rgb(225, 225, 225);
         const BLACK: Color = Color::Rgb(10, 10, 10);
 
-        let primary_color = match &self.inner.entry.props {
+        let primary_color = match &node.props {
             EntryProperties::File(_) => WHITE,
             EntryProperties::Directory => Color::LightBlue,
         };
 
-        match (self.highlighted, self.inner.selected) {
+        match (self.highlighted, self.entry.selected) {
             (true, true) => fill_area(area, buf, |cell| {
                 cell.fg = BLACK;
                 cell.bg = Color::Yellow;
@@ -277,7 +279,7 @@ impl<'a> Widget for RenderedItem<'a> {
         const BASE_SIZE_OFFSET: u16 = 1;
         const MIN_SPACING: u16 = 1;
 
-        let name_offset = if self.inner.selected {
+        let name_offset = if self.entry.selected {
             BASE_NAME_OFFSET * 2
         } else {
             BASE_NAME_OFFSET
@@ -287,9 +289,11 @@ impl<'a> Widget for RenderedItem<'a> {
             return;
         }
 
-        self.apply_line_color(area, buf);
+        let node = &self.archive[self.entry.id];
 
-        let style = if self.highlighted || self.inner.selected {
+        self.apply_line_color(node, area, buf);
+
+        let style = if self.highlighted || self.entry.selected {
             Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
@@ -298,22 +302,22 @@ impl<'a> Widget for RenderedItem<'a> {
         buf.set_stringn(
             area.x + name_offset,
             area.y,
-            &self.inner.entry.name,
+            &node.name,
             // This caps the maximum length to always show at least one free character at the end
             area.width.saturating_sub(name_offset + BASE_NAME_OFFSET) as usize,
             style,
         );
 
-        let name_len = name_offset + UnicodeWidthStr::width(self.inner.entry.name.as_str()) as u16;
+        let name_len = name_offset + UnicodeWidthStr::width(node.name.as_str()) as u16;
         let size_start = area
             .width
-            .saturating_sub(self.inner.size.len() as u16)
+            .saturating_sub(self.entry.size.len() as u16)
             .saturating_sub(BASE_SIZE_OFFSET);
         let remaining_space = size_start.saturating_sub(MIN_SPACING);
 
         // Draw the description of the entry only if we have enough room for it
         if remaining_space >= name_len {
-            buf.set_string(area.x + size_start, area.y, &self.inner.size, style);
+            buf.set_string(area.x + size_start, area.y, &self.entry.size, style);
         }
     }
 }

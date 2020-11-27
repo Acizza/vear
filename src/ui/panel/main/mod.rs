@@ -5,23 +5,26 @@ use self::{entry_stats::EntryStats, key_hints::KeyHints};
 use super::files::{PathViewer, PathViewerResult};
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use crate::{
-    archive::{Archive, NodeID},
+    archive::{extract::Extractor, Archive, NodeID},
     ui::{
         util::{
             input::{Input, InputResult, InputState},
-            pad_rect_horiz,
+            pad_rect_horiz, SimpleText,
         },
         InputLock,
     },
 };
 use anyhow::{Context, Result};
+use async_std::task;
+use parking_lot::Mutex;
+use std::sync::{atomic::Ordering, Arc};
 use tui::layout::{Constraint, Direction, Layout};
 
 pub struct MainPanel<'a> {
-    archive: Archive,
+    archive: Arc<Archive>,
     path_viewer: PathViewer,
     entry_stats: EntryStats<'a>,
-    state: PanelState,
+    state: Arc<Mutex<PanelState>>,
 }
 
 impl<'a> MainPanel<'a> {
@@ -31,12 +34,14 @@ impl<'a> MainPanel<'a> {
     const MOUNT_AT_TMP_KEY: char = 'm';
 
     pub fn new(archive: Archive) -> Result<Self> {
-        let path_viewer = PathViewer::new(&archive, NodeID::first()).context("archive is empty")?;
+        let archive = Arc::new(archive);
+        let path_viewer =
+            PathViewer::new(Arc::clone(&archive), NodeID::first()).context("archive is empty")?;
 
         let entry_stats = EntryStats::new(
             &archive,
             path_viewer.directory(),
-            path_viewer.highlighted(),
+            path_viewer.highlighted().id,
             path_viewer.highlighted_index(),
         );
 
@@ -44,22 +49,8 @@ impl<'a> MainPanel<'a> {
             archive,
             path_viewer,
             entry_stats,
-            state: PanelState::Navigating,
+            state: Arc::new(Mutex::new(PanelState::Navigating)),
         })
-    }
-
-    fn process_path_viewer_key(&mut self, key: KeyCode) {
-        match self.path_viewer.process_key(key, &self.archive) {
-            PathViewerResult::Ok => (),
-            PathViewerResult::PathSelected(id) => {
-                self.entry_stats.update(
-                    &self.archive,
-                    self.path_viewer.directory(),
-                    &self.archive[id],
-                    self.path_viewer.highlighted_index(),
-                );
-            }
-        }
     }
 }
 
@@ -67,38 +58,60 @@ impl<'a> Panel for MainPanel<'a> {
     type KeyResult = InputLock;
 
     fn process_key(&mut self, key: KeyCode) -> Self::KeyResult {
-        match &mut self.state {
-            PanelState::Navigating => match key {
-                KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) | KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => {
+        let mut state = self.state.lock();
+
+        match &mut *state {
+            PanelState::Navigating | PanelState::Extracting(_) => match (&*state, key) {
+                (PanelState::Navigating, KeyCode::Char(Self::EXTRACT_TO_DIR_KEY))
+                | (PanelState::Navigating, KeyCode::Char(Self::MOUNT_AT_DIR_KEY)) => {
                     let action = match key {
                         KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) => InputAction::Extract,
                         KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => InputAction::Mount,
                         _ => unreachable!(),
                     };
 
-                    self.state = PanelState::Input(InputState::new(), action);
+                    *state = PanelState::Input(InputState::new(), action);
                     InputLock::Locked
                 }
-                key => {
-                    self.process_path_viewer_key(key);
+                (_, key) => {
+                    match self.path_viewer.process_key(key) {
+                        PathViewerResult::Ok => (),
+                        PathViewerResult::PathSelected(id) => {
+                            self.entry_stats.update(
+                                &self.archive,
+                                self.path_viewer.directory(),
+                                id,
+                                self.path_viewer.highlighted_index(),
+                            );
+                        }
+                    }
                     InputLock::Unlocked
                 }
             },
             PanelState::Input(input, action) => {
                 match input.process_key(key) {
                     InputResult::Ok => (),
-                    InputResult::Return => self.state = PanelState::Navigating,
+                    InputResult::Return => *state = PanelState::Navigating,
                     InputResult::ProcessInput(path) => {
                         match action {
-                            // TODO: handle unwrap
-                            InputAction::Extract => self
-                                .archive
-                                .extract(self.path_viewer.selected_ids(), path)
-                                .unwrap(),
+                            InputAction::Extract => {
+                                let selected = self.path_viewer.selected_ids();
+                                let path = path.to_string();
+
+                                let archive = Arc::clone(&self.archive);
+                                let panel_state = Arc::clone(&self.state);
+                                let extractor = Arc::new(Extractor::prepare(archive, selected));
+
+                                *state = PanelState::Extracting(Arc::clone(&extractor));
+
+                                // TODO: handle unwrap
+                                task::spawn(async move {
+                                    extractor.extract(path).unwrap();
+                                    *panel_state.lock() = PanelState::Navigating;
+                                });
+                            }
                             InputAction::Mount => unimplemented!(),
                         }
-
-                        self.state = PanelState::Navigating;
                     }
                 }
 
@@ -128,7 +141,9 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
 
         frame.render_widget(self.entry_stats.clone(), layout[2]);
 
-        match &mut self.state {
+        let mut state = self.state.lock();
+
+        match &mut *state {
             PanelState::Navigating => {
                 let key_hints = KeyHints {
                     extract_to_dir_key: alpha_upper(Self::EXTRACT_TO_DIR_KEY),
@@ -138,6 +153,15 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
                 };
 
                 frame.render_widget(key_hints, pad_rect_horiz(layout[3], 1));
+            }
+            PanelState::Extracting(extractor) => {
+                let extracted = extractor.extracted.load(Ordering::Relaxed) as f32;
+                let total_ext = extractor.total_to_extract as f32;
+                let pcnt = ((extracted / total_ext) * 100.0).round() as u8;
+
+                let temp_text = SimpleText::new(format!("{}%", pcnt));
+
+                frame.render_widget(temp_text, pad_rect_horiz(layout[3], 1));
             }
             PanelState::Input(state, action) => {
                 let input = Input::new(action.desc());
@@ -154,6 +178,7 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
 enum PanelState {
     Navigating,
     Input(InputState, InputAction),
+    Extracting(Arc<Extractor>),
 }
 
 #[derive(Copy, Clone)]

@@ -1,16 +1,16 @@
 mod directory;
 
 use self::directory::DirectoryEntry;
-
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use crate::archive::{Archive, NodeID};
 use directory::{DirectoryResult, DirectoryViewer};
 use smallvec::SmallVec;
-use std::mem;
+use std::{mem, sync::Arc};
 use tui::layout::{Constraint, Direction, Layout};
 
 /// Widget to navigate and browse a given directory with its parent and child to ease navigation.
 pub struct PathViewer {
+    archive: Arc<Archive>,
     parent_dir: Option<DirectoryViewer>,
     cur_dir: DirectoryViewer,
     child_dir: Option<DirectoryViewer>,
@@ -20,23 +20,28 @@ impl PathViewer {
     /// Create a new `PathViewer` to view the given `directory` in the given `archive`.
     ///
     /// Returns None if the given `directory` has no entries (children) to show.
-    pub fn new(archive: &Archive, directory: NodeID) -> Option<Self> {
-        let cur_dir = DirectoryViewer::new(&archive, directory)?;
-        let child_dir = DirectoryViewer::new(&archive, cur_dir.highlighted().id);
+    pub fn new(archive: Arc<Archive>, directory: NodeID) -> Option<Self> {
+        let cur_dir = DirectoryViewer::new(Arc::clone(&archive), directory)?;
+        let child_dir = DirectoryViewer::new(Arc::clone(&archive), cur_dir.highlighted().id);
 
         Some(Self {
+            archive,
             parent_dir: None,
             cur_dir,
             child_dir,
         })
     }
 
-    pub fn process_key(&mut self, key: KeyCode, archive: &Archive) -> PathViewerResult {
+    fn dir_viewer(&self, directory: NodeID) -> Option<DirectoryViewer> {
+        DirectoryViewer::new(Arc::clone(&self.archive), directory)
+    }
+
+    pub fn process_key(&mut self, key: KeyCode) -> PathViewerResult {
         match self.cur_dir.process_key(key) {
             DirectoryResult::Ok => PathViewerResult::Ok,
             DirectoryResult::EntryHighlight(id) => {
-                self.child_dir = if archive[id].props.is_dir() {
-                    DirectoryViewer::new(archive, id)
+                self.child_dir = if self.archive[id].props.is_dir() {
+                    self.dir_viewer(id)
                 } else {
                     None
                 };
@@ -44,7 +49,7 @@ impl PathViewer {
                 PathViewerResult::PathSelected(id)
             }
             DirectoryResult::ViewChild(id) => {
-                let new_cur = match DirectoryViewer::new(archive, id) {
+                let new_cur = match self.dir_viewer(id) {
                     Some(new_cur) => new_cur,
                     None => return PathViewerResult::Ok,
                 };
@@ -53,7 +58,7 @@ impl PathViewer {
                 let highlighted_node = self.highlighted().id;
 
                 self.parent_dir = Some(old_cur);
-                self.child_dir = DirectoryViewer::new(archive, highlighted_node);
+                self.child_dir = self.dir_viewer(highlighted_node);
 
                 PathViewerResult::PathSelected(highlighted_node)
             }
@@ -65,13 +70,13 @@ impl PathViewer {
 
                 self.child_dir = Some(mem::replace(&mut self.cur_dir, new_cur));
 
-                let parent = archive[id]
+                let parent = self.archive[id]
                     .parent
-                    .and_then(|parent| archive[parent].parent)
-                    .and_then(|parent| archive[parent].parent);
+                    .and_then(|parent| self.archive[parent].parent)
+                    .and_then(|parent| self.archive[parent].parent);
 
                 if let Some(parent) = parent {
-                    self.parent_dir = DirectoryViewer::new(archive, parent);
+                    self.parent_dir = self.dir_viewer(parent);
                 }
 
                 PathViewerResult::PathSelected(self.highlighted().id)
