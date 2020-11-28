@@ -3,12 +3,13 @@ use std::borrow::Cow;
 use crate::{
     archive::ArchiveEntry,
     archive::{Archive, EntryProperties},
-    ui::util::SimpleText,
+    ui::{colors, util::SimpleText},
 };
 use crate::{archive::NodeID, util::size};
 use tui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::Style,
     widgets::Widget,
 };
 
@@ -144,16 +145,27 @@ impl<'a> Widget for EntryStats<'a> {
             .direction(Direction::Horizontal)
             .split(layout[0]);
 
+        let style = Style::default().fg(colors::WHITE);
+
         if let Some(date) = &self.date {
-            let text = SimpleText::new(date).alignment(Alignment::Left);
+            let text = SimpleText::new(date)
+                .alignment(Alignment::Left)
+                .style(style);
+
             text.render(left_layout[0], buf);
         }
 
-        let encoding = SimpleText::new(self.encoding).alignment(Alignment::Left);
+        let encoding = SimpleText::new(self.encoding)
+            .alignment(Alignment::Left)
+            .style(style);
+
         encoding.render(left_layout[2], buf);
 
         if let Some(compressed_size) = &self.compressed_size {
-            let text = SimpleText::new(compressed_size).alignment(Alignment::Center);
+            let text = SimpleText::new(compressed_size)
+                .alignment(Alignment::Center)
+                .style(style);
+
             text.render(layout[2], buf);
         }
 
@@ -166,10 +178,16 @@ impl<'a> Widget for EntryStats<'a> {
             .direction(Direction::Horizontal)
             .split(layout[4]);
 
-        let total_size = SimpleText::new(self.total_size).alignment(Alignment::Right);
+        let total_size = SimpleText::new(self.total_size)
+            .alignment(Alignment::Right)
+            .style(style);
+
         total_size.render(right_layout[0], buf);
 
-        let selection = SimpleText::new(&self.selection).alignment(Alignment::Right);
+        let selection = SimpleText::new(&self.selection)
+            .alignment(Alignment::Right)
+            .style(style);
+
         selection.render(right_layout[2], buf);
     }
 }

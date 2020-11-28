@@ -1,4 +1,7 @@
-use crate::ui::util::{fill_area, text_fragments::TextFragments};
+use crate::ui::{
+    colors,
+    util::{fill_area, text_fragments::TextFragments},
+};
 use smallvec::SmallVec;
 use std::char;
 use tui::{
@@ -33,7 +36,7 @@ impl Widget for ProgressBar {
 
         fill_area(prog_area, buf, |cell| {
             cell.bg = Color::Cyan;
-            cell.fg = Color::Black;
+            cell.fg = colors::BLACK;
         });
 
         let style = Style::default();

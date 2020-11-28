@@ -1,3 +1,5 @@
+use crate::ui::colors;
+
 use super::{
     fill_area, pad_rect_left, text_fragments::Fragment, text_fragments::TextFragments, SimpleText,
 };
@@ -22,7 +24,9 @@ impl Input {
     pub fn new(desc: &'static str) -> Self {
         Self {
             desc,
-            style: Style::default().bg(Self::DEFAULT_BG_COLOR).fg(Color::White),
+            style: Style::default()
+                .bg(Self::DEFAULT_BG_COLOR)
+                .fg(colors::WHITE),
         }
     }
 }

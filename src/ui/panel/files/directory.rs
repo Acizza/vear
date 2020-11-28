@@ -1,9 +1,9 @@
 use super::{Backend, Draw, Frame, KeyCode, Panel};
-use crate::util::size;
 use crate::{
     archive::{Archive, ArchiveEntry, EntryProperties, NodeID},
     ui::util::fill_area,
 };
+use crate::{ui::colors, util::size};
 use smallvec::{smallvec, SmallVec};
 use std::ops::Range;
 use std::{ops::Deref, sync::Arc};
@@ -246,21 +246,18 @@ impl<'a> RenderedItem<'a> {
     }
 
     fn apply_line_color(&self, node: &ArchiveEntry, area: Rect, buf: &mut Buffer) {
-        const WHITE: Color = Color::Rgb(225, 225, 225);
-        const BLACK: Color = Color::Rgb(10, 10, 10);
-
         let primary_color = match &node.props {
-            EntryProperties::File(_) => WHITE,
+            EntryProperties::File(_) => colors::WHITE,
             EntryProperties::Directory => Color::LightBlue,
         };
 
         match (self.highlighted, self.entry.selected) {
             (true, true) => fill_area(area, buf, |cell| {
-                cell.fg = BLACK;
+                cell.fg = colors::BLACK;
                 cell.bg = Color::Yellow;
             }),
             (true, false) => fill_area(area, buf, |cell| {
-                cell.fg = BLACK;
+                cell.fg = colors::BLACK;
                 cell.bg = primary_color;
             }),
             (false, true) => fill_area(area, buf, |cell| {

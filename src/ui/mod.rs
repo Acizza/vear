@@ -1,3 +1,4 @@
+mod colors;
 mod event;
 mod panel;
 mod util;

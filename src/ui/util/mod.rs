@@ -33,6 +33,12 @@ impl<'a> SimpleText<'a> {
         self.alignment = alignment;
         self
     }
+
+    #[inline(always)]
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
+    }
 }
 
 impl<'a> Widget for SimpleText<'a> {
