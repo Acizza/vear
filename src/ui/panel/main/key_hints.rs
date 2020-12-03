@@ -12,18 +12,18 @@ use tui::{
 pub struct KeyHints {
     pub extract_to_dir_key: char,
     pub extract_to_cwd_key: char,
-    pub mount_at_tmp_key: char,
-    pub mount_at_dir_key: char,
+    pub mount_state: MountState,
 }
 
 impl KeyHints {
     const COLOR: Color = Color::DarkGray;
+    const MOUNTED_COLOR: Color = Color::Cyan;
 
     fn draw_extract_hint(&self, area: Rect, buf: &mut Buffer) {
         let style = Style::default().fg(Self::COLOR);
 
-        let extract_all = KeyHint::new(self.extract_to_dir_key, "to dir", style);
-        let extract_to_cwd = KeyHint::new(self.extract_to_cwd_key, "to cwd", style);
+        let extract_all = KeyHint::with_char(self.extract_to_dir_key, "to dir", style);
+        let extract_to_cwd = KeyHint::with_char(self.extract_to_cwd_key, "to cwd", style);
 
         let extract_items =
             text_fragments![style, "Extract [", extract_all, ", ", extract_to_cwd, ']'];
@@ -33,15 +33,33 @@ impl KeyHints {
     }
 
     fn draw_mount_hint(&self, area: Rect, buf: &mut Buffer) {
-        let style = Style::default().fg(Self::COLOR);
+        match self.mount_state {
+            MountState::Mounted { unmount } => {
+                let style = Style::default().fg(Self::MOUNTED_COLOR);
 
-        let mount_at_tmp = KeyHint::new(self.mount_at_tmp_key, "at tmp", style);
-        let mount_at_dir = KeyHint::new(self.mount_at_dir_key, "at dir", style);
+                let unmount_hint = KeyHint::with_str(unmount, "unmount", style);
 
-        let mount_items = text_fragments![style, "Mount [", mount_at_tmp, ", ", mount_at_dir, ']'];
+                let mount_items = text_fragments![style, "Mount [", unmount_hint, ']'];
 
-        let mount_keys = TextFragments::new(&mount_items).alignment(Alignment::Right);
-        mount_keys.render(area, buf);
+                let mount_keys = TextFragments::new(&mount_items).alignment(Alignment::Right);
+                mount_keys.render(area, buf);
+            }
+            MountState::Unmounted {
+                mount_at_tmp,
+                mount_at_dir,
+            } => {
+                let style = Style::default().fg(Self::COLOR);
+
+                let mount_at_tmp = KeyHint::with_char(mount_at_tmp, "at tmp", style);
+                let mount_at_dir = KeyHint::with_char(mount_at_dir, "at dir", style);
+
+                let mount_items =
+                    text_fragments![style, "Mount [", mount_at_tmp, ", ", mount_at_dir, ']'];
+
+                let mount_keys = TextFragments::new(&mount_items).alignment(Alignment::Right);
+                mount_keys.render(area, buf);
+            }
+        }
     }
 }
 
@@ -62,10 +80,22 @@ struct KeyHint<'a> {
 }
 
 impl<'a> KeyHint<'a> {
-    fn new(key: char, desc: &'static str, style: Style) -> Self {
+    const SEPARATOR: &'static str = " -> ";
+
+    fn with_char(key: char, desc: &'static str, style: Style) -> Self {
         let items = [
             (key, style).into(),
-            (" -> ", style).into(),
+            (Self::SEPARATOR, style).into(),
+            (desc, style).into(),
+        ];
+
+        Self { items }
+    }
+
+    fn with_str(key: &'static str, desc: &'static str, style: Style) -> Self {
+        let items = [
+            (key, style).into(),
+            (Self::SEPARATOR, style).into(),
             (desc, style).into(),
         ];
 
@@ -77,4 +107,14 @@ impl<'a> FragmentedWidget for KeyHint<'a> {
     fn fragments(&self) -> &[Fragment] {
         &self.items
     }
+}
+
+pub enum MountState {
+    Mounted {
+        unmount: &'static str,
+    },
+    Unmounted {
+        mount_at_tmp: char,
+        mount_at_dir: char,
+    },
 }

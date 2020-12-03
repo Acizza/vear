@@ -1,15 +1,17 @@
 pub mod extract;
+pub mod mount;
 
 use anyhow::{anyhow, Context, Result};
 use chardetng::EncodingDetector;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use encoding_rs::Encoding;
 use parking_lot::Mutex;
-use std::fs::File;
 use std::{
     borrow::Cow,
     ops::{Deref, Index},
     path::PathBuf,
 };
+use std::{fs::File, time::SystemTime};
 use std::{io::Read, io::Seek, path::Path};
 use zip::{read::ZipFile, ZipArchive};
 
@@ -34,6 +36,7 @@ impl Deref for NodeID {
 pub struct Archive {
     inner: Mutex<ZipArchive<File>>,
     pub files: ArchiveEntries,
+    pub total_size_bytes: u64,
 }
 
 impl Archive {
@@ -43,11 +46,12 @@ impl Archive {
     {
         let file = File::open(path).context("failed to open archive")?;
         let mut archive = ZipArchive::new(file).context("failed to parse archive")?;
-        let files = ArchiveEntries::read(&mut archive)?;
+        let (files, total_size_bytes) = ArchiveEntries::read(&mut archive)?;
 
         Ok(Self {
             inner: Mutex::new(archive),
             files,
+            total_size_bytes,
         })
     }
 }
@@ -70,7 +74,6 @@ impl ArchiveEntries {
         Self(entries)
     }
 
-    #[inline(always)]
     fn push_entry(&mut self, node: ArchiveEntry) -> NodeID {
         let next = NodeID(self.len() as u32);
         self.0.push(node);
@@ -78,11 +81,12 @@ impl ArchiveEntries {
     }
 
     // TODO: make generic over archive type
-    fn read<R>(archive: &mut ZipArchive<R>) -> Result<Self>
+    fn read<R>(archive: &mut ZipArchive<R>) -> Result<(Self, u64)>
     where
         R: Read + Seek,
     {
         let mut entries = Self::new(archive.len());
+        let mut total_size_bytes = 0;
 
         for i in 0..archive.len() {
             let file = archive
@@ -106,6 +110,8 @@ impl ArchiveEntries {
 
                     let id = entries.push_entry(entry);
                     entries.0[*cur_node as usize].children.push(id);
+
+                    total_size_bytes += file.size();
                     id
                 });
 
@@ -113,7 +119,7 @@ impl ArchiveEntries {
             }
         }
 
-        Ok(entries)
+        Ok((entries, total_size_bytes))
     }
 
     fn decode_filename(bytes: &[u8]) -> (Cow<str>, &'static Encoding) {
@@ -123,6 +129,14 @@ impl ArchiveEntries {
 
         let (name, encoding, _) = encoding.decode(bytes);
         (name, encoding)
+    }
+
+    pub fn create_node_id(&self, id: u32) -> Option<NodeID> {
+        if id < *NodeID::first() || id > self.len() as u32 {
+            return None;
+        }
+
+        Some(NodeID(id))
     }
 
     #[inline(always)]
@@ -335,5 +349,31 @@ impl From<zip::DateTime> for Date {
             hour: date.hour(),
             minute: date.minute(),
         }
+    }
+}
+
+impl<'a> Into<SystemTime> for &'a Date {
+    fn into(self) -> SystemTime {
+        const EPOCH: SystemTime = SystemTime::UNIX_EPOCH;
+
+        let cur_date = DateTime::<Utc>::from_utc(self.into(), Utc);
+        let epoch: DateTime<Utc> = DateTime::from(EPOCH);
+        let duration = cur_date.signed_duration_since(epoch);
+
+        duration
+            .to_std()
+            .map(|since| EPOCH + since)
+            .unwrap_or(EPOCH)
+    }
+}
+
+impl<'a> Into<NaiveDateTime> for &'a Date {
+    #[allow(clippy::cast_lossless)]
+    fn into(self) -> NaiveDateTime {
+        NaiveDate::from_ymd(self.year as i32, self.month as u32, self.day as u32).and_hms(
+            self.hour as u32,
+            self.minute as u32,
+            0,
+        )
     }
 }

@@ -6,7 +6,9 @@ use self::{entry_stats::EntryStats, key_hints::KeyHints};
 use super::files::{PathViewer, PathViewerResult};
 use super::{Backend, Draw, Frame, KeyCode, Panel, Rect};
 use crate::{
-    archive::{extract::Extractor, Archive, NodeID},
+    archive::{
+        extract::Extractor, mount::ArchiveMountSession, mount::MountedArchive, Archive, NodeID,
+    },
     ui::{
         util::{
             input::{Input, InputResult, InputState},
@@ -17,6 +19,7 @@ use crate::{
 };
 use anyhow::{Context, Error, Result};
 use async_std::task;
+use key_hints::MountState;
 use parking_lot::Mutex;
 use progress_bar::ProgressBar;
 use smallvec::SmallVec;
@@ -32,6 +35,7 @@ pub struct MainPanel<'a> {
     path_viewer: PathViewer,
     entry_stats: EntryStats<'a>,
     state: Arc<Mutex<PanelState>>,
+    mount_session: Option<ArchiveMountSession>,
 }
 
 impl<'a> MainPanel<'a> {
@@ -39,6 +43,7 @@ impl<'a> MainPanel<'a> {
     const EXTRACT_TO_CWD_KEY: char = 'e';
     const MOUNT_AT_DIR_KEY: char = 'l';
     const MOUNT_AT_TMP_KEY: char = 'm';
+    const UNMOUNT_KEY: KeyCodeDesc = KeyCodeDesc::new(KeyCode::Esc, "Esc");
 
     pub fn new(archive: Archive) -> Result<Self> {
         let archive = Arc::new(archive);
@@ -57,16 +62,14 @@ impl<'a> MainPanel<'a> {
             path_viewer,
             entry_stats,
             state: Arc::new(Mutex::new(PanelState::default())),
+            mount_session: None,
         })
     }
 
-    fn extract_async(
-        nodes: SmallVec<[NodeID; 4]>,
-        archive: Arc<Archive>,
-        state: Arc<Mutex<PanelState>>,
-        path: String,
-    ) -> PanelState {
+    fn extract_async(&self, nodes: SmallVec<[NodeID; 4]>, path: String) -> Arc<Extractor> {
+        let archive = Arc::clone(&self.archive);
         let extractor = Arc::new(Extractor::prepare(archive, nodes));
+        let state = Arc::clone(&self.state);
         let task_extractor = Arc::clone(&extractor);
 
         task::spawn(async move {
@@ -79,7 +82,7 @@ impl<'a> MainPanel<'a> {
             }
         });
 
-        PanelState::Extracting(extractor)
+        extractor
     }
 
     fn draw_error<B: Backend>(kind: ErrorKind, error: &Error, area: Rect, frame: &mut Frame<B>) {
@@ -97,6 +100,7 @@ impl<'a> MainPanel<'a> {
 
         let header_text = match kind {
             ErrorKind::Extract => "Error Extracting Archive",
+            ErrorKind::Mount => "Error Mounting Archive",
         };
 
         let header = SimpleText::new(header_text)
@@ -122,9 +126,9 @@ impl<'a> Panel for MainPanel<'a> {
         let mut state = self.state.lock();
 
         match &mut *state {
-            PanelState::Navigating | PanelState::Extracting(_) => match (&*state, key) {
-                (PanelState::Navigating, KeyCode::Char(Self::EXTRACT_TO_DIR_KEY))
-                | (PanelState::Navigating, KeyCode::Char(Self::MOUNT_AT_DIR_KEY)) => {
+            PanelState::Free | PanelState::Extracting(_) => match (&*state, key) {
+                (PanelState::Free, KeyCode::Char(Self::EXTRACT_TO_DIR_KEY))
+                | (PanelState::Free, KeyCode::Char(Self::MOUNT_AT_DIR_KEY)) => {
                     let action = match key {
                         KeyCode::Char(Self::EXTRACT_TO_DIR_KEY) => InputAction::Extract,
                         KeyCode::Char(Self::MOUNT_AT_DIR_KEY) => InputAction::Mount,
@@ -133,6 +137,10 @@ impl<'a> Panel for MainPanel<'a> {
 
                     *state = PanelState::Input(InputState::new(), action);
                     InputLock::Locked
+                }
+                (PanelState::Free, key) if key == Self::UNMOUNT_KEY.key => {
+                    self.mount_session = None;
+                    InputLock::Unlocked
                 }
                 (_, key) => {
                     match self.path_viewer.process_key(key) {
@@ -146,6 +154,7 @@ impl<'a> Panel for MainPanel<'a> {
                             );
                         }
                     }
+
                     InputLock::Unlocked
                 }
             },
@@ -156,12 +165,22 @@ impl<'a> Panel for MainPanel<'a> {
                     InputResult::ProcessInput(path) => match action {
                         InputAction::Extract => {
                             let nodes = self.path_viewer.selected_ids();
-                            let archive = Arc::clone(&self.archive);
-                            let panel_state = Arc::clone(&self.state);
+
                             let path = path.to_string();
-                            *state = Self::extract_async(nodes, archive, panel_state, path);
+                            let extractor = self.extract_async(nodes, path);
+                            *state = PanelState::Extracting(extractor);
                         }
-                        InputAction::Mount => unimplemented!(),
+                        InputAction::Mount => {
+                            let mounted = MountedArchive::new(Arc::clone(&self.archive));
+
+                            match mounted.mount(path) {
+                                Ok(handle) => {
+                                    self.mount_session = Some(handle);
+                                    state.reset();
+                                }
+                                Err(err) => *state = PanelState::Error(ErrorKind::Mount, err),
+                            }
+                        }
                     },
                 }
 
@@ -205,12 +224,22 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
         frame.render_widget(self.entry_stats.clone(), layout[2]);
 
         match &mut *state {
-            PanelState::Navigating | PanelState::Error(_, _) => {
+            PanelState::Free | PanelState::Error(_, _) => {
+                let mount_state = if self.mount_session.is_some() {
+                    MountState::Mounted {
+                        unmount: Self::UNMOUNT_KEY.desc,
+                    }
+                } else {
+                    MountState::Unmounted {
+                        mount_at_dir: alpha_upper(Self::MOUNT_AT_DIR_KEY),
+                        mount_at_tmp: alpha_upper(Self::MOUNT_AT_TMP_KEY),
+                    }
+                };
+
                 let key_hints = KeyHints {
                     extract_to_dir_key: alpha_upper(Self::EXTRACT_TO_DIR_KEY),
                     extract_to_cwd_key: alpha_upper(Self::EXTRACT_TO_CWD_KEY),
-                    mount_at_dir_key: alpha_upper(Self::MOUNT_AT_DIR_KEY),
-                    mount_at_tmp_key: alpha_upper(Self::MOUNT_AT_TMP_KEY),
+                    mount_state,
                 };
 
                 frame.render_widget(key_hints, pad_rect_horiz(layout[3], 1));
@@ -236,7 +265,7 @@ impl<'a, B: Backend> Draw<B> for MainPanel<'a> {
 }
 
 enum PanelState {
-    Navigating,
+    Free,
     Input(InputState, InputAction),
     Extracting(Arc<Extractor>),
     Error(ErrorKind, Error),
@@ -251,7 +280,7 @@ impl PanelState {
 
 impl Default for PanelState {
     fn default() -> Self {
-        Self::Navigating
+        Self::Free
     }
 }
 
@@ -273,9 +302,21 @@ impl InputAction {
 #[derive(Copy, Clone)]
 enum ErrorKind {
     Extract,
+    Mount,
 }
 
 // TODO: use char::to_ascii_uppercase if/when it's made a const fn
 const fn alpha_upper(ch: char) -> char {
     (ch as u8 - 32) as char
+}
+
+struct KeyCodeDesc {
+    key: KeyCode,
+    desc: &'static str,
+}
+
+impl KeyCodeDesc {
+    const fn new(key: KeyCode, desc: &'static str) -> Self {
+        Self { key, desc }
+    }
 }
